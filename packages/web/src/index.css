@@ -1,0 +1,503 @@
+/* Google Fonts - Dialectic Visual Design Spec v2 */
+/* Headers: Archivo Narrow (condensed, authoritative feel) */
+/* Body: Source Serif Pro (warm serif for reading) */
+/* Mono: IBM Plex Mono (for command bar, code) */
+/* NOTE: @import url() must come FIRST before other imports */
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+Pro:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
+@import "tailwindcss";
+@import "./styles/tokens.css";
+
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark light;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-body);
+  line-height: var(--leading-relaxed);
+  color: var(--text-primary);
+  background-color: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TYPOGRAPHY - Dialectic Visual Design Spec v2
+   Headers: Condensed sans (trailhead signs)
+   Body: Warm serif (field notes)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-family: var(--font-headers);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-primary);
+}
+
+h1 {
+  font-size: var(--text-page-title);
+  font-weight: 700;
+}
+h2 { font-size: 22px; }
+h3 { font-size: var(--text-item-title); }
+h4 { font-size: var(--text-body); }
+h5 { font-size: var(--text-small); }
+h6 { font-size: var(--text-caption); }
+
+/* Section headers - stamped labels */
+.section-header {
+  font-family: var(--font-headers);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-default);
+  margin-bottom: var(--space-2);
+}
+
+/* Serif body - for content areas (field notes feel) */
+.serif-body {
+  font-family: var(--font-serif);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+}
+
+/* Serif for content titles */
+.serif-title {
+  font-family: var(--font-serif);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* Sans for UI chrome */
+.ui-label {
+  font-family: var(--font-headers);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: var(--text-caption);
+}
+
+p {
+  margin: 0;
+}
+
+/* Monospace elements */
+code, pre, .mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+}
+
+/* Links */
+a {
+  color: var(--accent-info);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--accent-primary);
+  text-decoration: underline;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DINER GLOW FOCUS STATES
+   When something is active, focused, or hovered, it gets warmth—
+   like light hitting a vinyl booth, like amber through a beer glass.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-bone),
+    0 0 0 4px var(--color-diner-amber);
+}
+
+/* Hoverable class for warm hover effect */
+.hoverable {
+  transition: background var(--transition-default);
+}
+
+.hoverable:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(232, 184, 74, 0.08),
+    rgba(232, 184, 74, 0.02)
+  );
+}
+
+/* Active/Selected - full glow */
+.active-glow {
+  background: var(--color-diner-amber);
+  color: var(--color-charcoal);
+  box-shadow: var(--glow-active);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLOW CARD - Directional warm glow
+   Light in diners comes from specific sources—neon, pendant lamps, windows.
+   The glow should feel like it has a source (above-left).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Cards with directional glow - light from above-left */
+.glow-card {
+  background: linear-gradient(
+    135deg,
+    rgba(232, 184, 74, 0.12) 0%,
+    rgba(232, 184, 74, 0.04) 50%,
+    transparent 100%
+  );
+  transition:
+    background var(--duration-default) var(--ease-out),
+    box-shadow var(--duration-slow) var(--ease-out);
+}
+
+/* Hoverable card variant - subtle warmth on hover */
+.glow-card-hoverable {
+  transition:
+    background var(--duration-default) var(--ease-out),
+    box-shadow var(--duration-slow) var(--ease-out);
+}
+
+.glow-card-hoverable:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(232, 184, 74, 0.10) 0%,
+    rgba(232, 184, 74, 0.03) 50%,
+    transparent 100%
+  );
+  box-shadow:
+    0 1px 3px rgba(44, 42, 38, 0.06),
+    0 4px 12px rgba(44, 42, 38, 0.03),
+    0 0 20px rgba(232, 184, 74, 0.08);
+}
+
+/* Active card with full amber glow */
+.glow-card-active {
+  background: linear-gradient(
+    135deg,
+    rgba(232, 184, 74, 0.16) 0%,
+    rgba(232, 184, 74, 0.08) 50%,
+    rgba(232, 184, 74, 0.02) 100%
+  );
+  box-shadow:
+    0 1px 3px rgba(44, 42, 38, 0.06),
+    0 4px 12px rgba(44, 42, 38, 0.03),
+    0 0 24px rgba(232, 184, 74, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLBAR STYLING
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-elevated);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Selection */
+::selection {
+  background-color: var(--accent-warm);
+  color: var(--color-charcoal);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ANIMATIONS
+   Nothing bounces. Quick and purposeful. Like competent hands.
+   Warmth fades in gently.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Utility animation classes using motion tokens */
+.animate-fadeIn {
+  animation: fadeIn var(--duration-default) var(--ease-out);
+}
+
+.animate-slideUp {
+  animation: slideUp var(--duration-slow) var(--ease-out);
+}
+
+.animate-slideIn {
+  animation: slideIn var(--duration-default) var(--ease-out);
+}
+
+.animate-pulse {
+  animation: pulse 2s var(--ease-in-out) infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INTERACTIVE ELEMENTS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Button base reset */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-default),
+    transform var(--transition-fast);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Interactive list items - hover and focus parity */
+.interactive-item {
+  transition:
+    background-color var(--transition-default),
+    border-color var(--transition-fast);
+}
+
+.interactive-item:hover,
+.interactive-item:focus-visible {
+  background-color: var(--bg-subtle);
+}
+
+/* Interactive states */
+button:not(:disabled):hover {
+  filter: brightness(1.05);
+}
+
+button:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* Standard interactive element (from tokens) */
+.interactive {
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-default) var(--ease-out);
+}
+
+/* Glow effects - slightly slower onset for warmth */
+.glow-on-hover {
+  transition: box-shadow var(--duration-slow) var(--ease-out);
+}
+
+.glow-on-hover:hover {
+  box-shadow: var(--glow-active);
+}
+
+/* Panel reveal animation */
+.panel-enter {
+  animation: slideIn var(--duration-default) var(--ease-out);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INPUT ELEMENTS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+input, textarea {
+  font-family: inherit;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-default);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DARK MODE: FIRELIGHT
+   Dark mode isn't night—it's evening in the cabin with the lamp on.
+   The amber glow becomes more prominent—like the only warm light in a dark room.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-color-scheme: dark) {
+  /* Focus states glow brighter in the dark */
+  :focus-visible {
+    box-shadow:
+      0 0 0 2px var(--color-cabin-dark),
+      0 0 0 4px var(--color-diner-amber-dark);
+  }
+
+  /* Hoverable effect is more prominent in firelight */
+  .hoverable:hover {
+    background: linear-gradient(
+      135deg,
+      rgba(240, 192, 80, 0.12),
+      rgba(240, 192, 80, 0.04)
+    );
+  }
+
+  /* Active glow becomes the warm light in a dark room */
+  .active-glow {
+    background: var(--color-diner-amber-dark);
+    color: var(--color-charcoal);
+    box-shadow:
+      0 0 30px rgba(240, 192, 80, 0.25),
+      0 0 60px rgba(240, 192, 80, 0.1);
+  }
+
+  /* Glow card - more prominent in firelight */
+  .glow-card {
+    background: linear-gradient(
+      135deg,
+      rgba(240, 192, 80, 0.14) 0%,
+      rgba(240, 192, 80, 0.05) 50%,
+      transparent 100%
+    );
+  }
+
+  /* Hoverable card glow intensifies in dark mode */
+  .glow-card-hoverable:hover {
+    background: linear-gradient(
+      135deg,
+      rgba(240, 192, 80, 0.16) 0%,
+      rgba(240, 192, 80, 0.06) 50%,
+      transparent 100%
+    );
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.2),
+      0 4px 12px rgba(0, 0, 0, 0.15),
+      0 0 30px rgba(240, 192, 80, 0.15),
+      0 0 60px rgba(240, 192, 80, 0.05);
+  }
+
+  /* Active card with full amber glow - the only warm light in a dark room */
+  .glow-card-active {
+    background: linear-gradient(
+      135deg,
+      rgba(240, 192, 80, 0.20) 0%,
+      rgba(240, 192, 80, 0.10) 50%,
+      rgba(240, 192, 80, 0.03) 100%
+    );
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.2),
+      0 4px 12px rgba(0, 0, 0, 0.15),
+      0 0 30px rgba(240, 192, 80, 0.25),
+      0 0 60px rgba(240, 192, 80, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* Selection uses warmer amber in dark */
+  ::selection {
+    background-color: var(--color-diner-amber-dark);
+    color: var(--color-charcoal);
+  }
+
+  /* Scrollbar adapts to dark cabin */
+  ::-webkit-scrollbar-track {
+    background: var(--color-cabin-dark);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-ember);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-weathered);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ACCESSIBILITY
+   Reduce motion for users who prefer it
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}

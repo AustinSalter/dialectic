@@ -1,0 +1,1 @@
+export { ThesisCard } from './ThesisCard'

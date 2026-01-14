@@ -1,0 +1,10 @@
+{
+  "name": "@dialectic/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop wrapper for Dialectic (Tauri)",
+  "scripts": {},
+  "dependencies": {
+    "@dialectic/shared": "*"
+  }
+}

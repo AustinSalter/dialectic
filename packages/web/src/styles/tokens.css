@@ -1,0 +1,380 @@
+/* Design tokens - Dialectic Visual Design Spec v2 */
+/* "A small cabin in a big landscape. Serious work, but not solemn. Worn-in, not designed." */
+
+:root {
+  /* ═══════════════════════════════════════════════════════════════════════════
+     BLUES & GREENS (The Landscape)
+     The world outside the window. Used sparingly but essentially.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-sky: #6B98B8;           /* Backgrounds for "open" states, links, optimism */
+  --color-lake: #4A7B8C;          /* Depth, secondary info, coolness */
+  --color-slate: #5A7A8A;         /* Muted informational, disabled on dark */
+  --color-forest: #3D5A47;        /* Success, resolved, growth */
+  --color-pine: #2D4A37;          /* Dark forest, hover on green */
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     WARM TONES (The Cabin)
+     The interior workspace, where hands touch surfaces.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-burnt-sienna: #C4582B;  /* Primary accent, tensions, urgency */
+  --color-rust: #A04520;          /* Hover/pressed on sienna */
+  --color-diner-amber: #E8B84A;   /* Focus glow, warmth, active states */
+  --color-honey: #D4A055;         /* Secondary warm, highlights */
+  --color-terracotta: #B86B4A;    /* Midtone warm, borders */
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     NEUTRALS (Worn Surfaces)
+     Nothing pure. Everything slightly warm, slightly faded.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-charcoal: #2C2A26;      /* Primary text, dark mode base */
+  --color-umber: #4A453D;         /* Secondary text, strong borders */
+  --color-driftwood: #6B645A;     /* Tertiary text, icons */
+  --color-weathered: #8B8478;     /* Muted text, timestamps */
+  --color-worn-chrome: #A8A49C;   /* Subtle borders, dividers */
+  --color-hilux-cream: #D9D2C3;   /* Faded surfaces, cloth texture */
+  --color-parchment: #E8E2D6;     /* Card backgrounds */
+  --color-canvas: #F0EBE1;        /* Light mode elevated */
+  --color-bone: #F5F2EB;          /* Light mode base */
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     DARK MODE BASE
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-night: #1E1D1B;         /* Deepest background */
+  --color-cabin-dark: #2C2A26;    /* Primary dark surface */
+  --color-woodsmoke: #363330;     /* Elevated dark surface */
+  --color-ember: #4A4540;         /* Borders, subtle divisions */
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     DARK MODE ADJUSTED COLORS
+     Shifted for contrast and glow in firelight
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-burnt-sienna-dark: #D4683B;  /* Slightly lighter for contrast */
+  --color-diner-amber-dark: #F0C050;   /* Glows brighter against dark */
+  --color-sky-dark: #7AA8C8;           /* Holds up in dark */
+  --color-forest-dark: #4D6A57;        /* Slightly lighter */
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     LIGHT MODE SEMANTIC MAPPINGS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --bg-base: var(--color-bone);
+  --bg-elevated: var(--color-canvas);
+  --bg-card: var(--color-parchment);
+  --bg-subtle: var(--color-hilux-cream);
+
+  --text-primary: var(--color-charcoal);
+  --text-secondary: var(--color-umber);
+  --text-tertiary: var(--color-driftwood);
+  --text-muted: var(--color-weathered);
+
+  --border-strong: var(--color-terracotta);
+  --border-default: var(--color-worn-chrome);
+  --border-subtle: var(--color-parchment);
+
+  --accent-primary: var(--color-burnt-sienna);
+  --accent-primary-hover: var(--color-rust);
+  --accent-warm: var(--color-diner-amber);
+  --accent-success: var(--color-forest);
+  --accent-info: var(--color-sky);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     CATEGORY COLORS (Topic Tags)
+     Each domain gets a distinct color from the landscape/cabin palette
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --category-ai-infrastructure: var(--color-sky);        /* Tech/future - cool blue */
+  --category-geopolitical: var(--color-burnt-sienna);    /* Hot geopolitical issues - red-orange */
+  --category-market-structure: var(--color-forest);      /* Finance/money - green (growth) */
+  --category-energy-power: #8B6B9C;                      /* Power/energy - purple */
+  --category-operational: var(--color-terracotta);       /* Practical/grounded - earthy brown */
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     TYPOGRAPHY
+     ═══════════════════════════════════════════════════════════════════════════ */
+
+  /* Font stacks */
+  --font-headers: "National Park", "Obviously", "Archivo Narrow", system-ui, sans-serif;
+  --font-serif: "Freight Text", "Source Serif Pro", "Lora", Georgia, serif;
+  --font-mono: "Berkeley Mono", "IBM Plex Mono", "SF Mono", monospace;
+
+  /* Type scale */
+  --text-page-title: 28px;
+  --text-section-header: 12px;
+  --text-item-title: 16px;
+  --text-body: 15px;
+  --text-small: 13px;
+  --text-caption: 11px;
+  --text-mono: 14px;
+
+  /* Font weights */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Line heights */
+  --leading-tight: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+
+  /* Letter spacing */
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.1em;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SPACING
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     BORDER RADIUS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-full: 9999px;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     MOTION
+     Nothing bounces. Quick and purposeful. Like competent hands.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-in-out: cubic-bezier(0.42, 0, 0.58, 1);
+
+  --duration-fast: 100ms;
+  --duration-default: 150ms;
+  --duration-slow: 250ms;
+
+  /* Composed transitions */
+  --transition-fast: var(--duration-fast) var(--ease-out);
+  --transition-default: var(--duration-default) var(--ease-out);
+  --transition-slow: var(--duration-slow) var(--ease-out);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SHADOWS
+     Warm shadows, no glow (glow is reserved for active/focus states)
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --shadow-sm:
+    0 1px 3px rgba(44, 42, 38, 0.06),
+    0 1px 2px rgba(44, 42, 38, 0.04);
+  --shadow-md:
+    0 4px 8px rgba(44, 42, 38, 0.08),
+    0 2px 4px rgba(44, 42, 38, 0.04);
+  --shadow-lg:
+    0 12px 24px rgba(44, 42, 38, 0.10),
+    0 4px 8px rgba(44, 42, 38, 0.06);
+  --shadow-card:
+    0 1px 3px rgba(44, 42, 38, 0.06),
+    0 4px 12px rgba(44, 42, 38, 0.03);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     DINER GLOW
+     When something is active, focused, or hovered, it gets warmth.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --glow-focus:
+    0 0 0 2px var(--color-bone),
+    0 0 0 4px var(--color-diner-amber);
+  --glow-active:
+    0 0 20px rgba(232, 184, 74, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  --glow-hover: linear-gradient(
+    135deg,
+    rgba(232, 184, 74, 0.08),
+    rgba(232, 184, 74, 0.02)
+  );
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     LAYOUT
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --rail-width: 260px;
+  --command-bar-height: 52px;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     LANDSCAPE GRADIENTS (The Window)
+     Used to create sense of looking out at sky/forest/lake
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --landscape-gradient: linear-gradient(
+    180deg,
+    var(--bg-base) 0%,
+    rgba(107, 152, 184, 0.08) 40%,
+    rgba(61, 90, 71, 0.06) 70%,
+    rgba(74, 123, 140, 0.10) 100%
+  );
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     AMBIENT WARMTH
+     Cards and surfaces get subtle lamp glow even at rest
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --ambient-glow: linear-gradient(
+    135deg,
+    rgba(232, 184, 74, 0.04) 0%,
+    transparent 50%
+  );
+  --ambient-highlight: inset 0 1px 0 rgba(232, 184, 74, 0.08);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     TEXTURE (Worn Surfaces)
+     Subtle noise/grain for canvas/cloth feeling
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --texture-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   DARK MODE: FIRELIGHT
+   Dark mode isn't night—it's evening in the cabin with the lamp on.
+   ═════════════════════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Base surfaces */
+    --bg-base: var(--color-night);
+    --bg-elevated: var(--color-cabin-dark);
+    --bg-card: var(--color-woodsmoke);
+    --bg-subtle: var(--color-ember);
+
+    /* Text inverts */
+    --text-primary: var(--color-parchment);
+    --text-secondary: var(--color-hilux-cream);
+    --text-tertiary: var(--color-worn-chrome);
+    --text-muted: var(--color-weathered);
+
+    /* Borders in dark */
+    --border-strong: var(--color-terracotta);
+    --border-default: var(--color-ember);
+    --border-subtle: var(--color-woodsmoke);
+
+    /* Accents shift for contrast */
+    --accent-primary: var(--color-burnt-sienna-dark);
+    --accent-primary-hover: var(--color-burnt-sienna);
+    --accent-warm: var(--color-diner-amber-dark);
+    --accent-success: var(--color-forest-dark);
+    --accent-info: var(--color-sky-dark);
+
+    /* Category colors - slightly brighter for dark mode contrast */
+    --category-ai-infrastructure: var(--color-sky-dark);
+    --category-geopolitical: var(--color-burnt-sienna-dark);
+    --category-market-structure: var(--color-forest-dark);
+    --category-energy-power: #A080B0;  /* Lighter purple for dark mode */
+    --category-operational: #C87B5A;   /* Lighter terracotta for dark mode */
+
+    /* Shadows shift warmer/deeper */
+    --shadow-sm:
+      0 1px 3px rgba(0, 0, 0, 0.25),
+      0 1px 2px rgba(0, 0, 0, 0.15);
+    --shadow-md:
+      0 4px 8px rgba(0, 0, 0, 0.30),
+      0 2px 4px rgba(0, 0, 0, 0.20);
+    --shadow-lg:
+      0 12px 24px rgba(0, 0, 0, 0.35),
+      0 4px 8px rgba(0, 0, 0, 0.25);
+    --shadow-card:
+      0 2px 4px rgba(0, 0, 0, 0.20),
+      0 4px 12px rgba(0, 0, 0, 0.15);
+
+    /* The amber glow becomes more prominent—like the only warm light in a dark room */
+    --glow-focus:
+      0 0 0 2px var(--color-cabin-dark),
+      0 0 0 4px var(--color-diner-amber-dark);
+    --glow-active:
+      0 0 30px rgba(240, 192, 80, 0.25),
+      0 0 60px rgba(240, 192, 80, 0.1);
+    --glow-hover: linear-gradient(
+      135deg,
+      rgba(240, 192, 80, 0.12),
+      rgba(240, 192, 80, 0.04)
+    );
+
+    /* Landscape gradient - cooler tones visible through the dark */
+    --landscape-gradient: linear-gradient(
+      180deg,
+      var(--bg-base) 0%,
+      rgba(122, 168, 200, 0.06) 40%,
+      rgba(77, 106, 87, 0.05) 70%,
+      rgba(74, 123, 140, 0.08) 100%
+    );
+
+    /* Ambient warmth - more prominent in dark mode (lamplight) */
+    --ambient-glow: linear-gradient(
+      135deg,
+      rgba(240, 192, 80, 0.06) 0%,
+      transparent 50%
+    );
+    --ambient-highlight: inset 0 1px 0 rgba(240, 192, 80, 0.12);
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   UTILITY CLASSES
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+/* Focus states - amber glow */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--glow-focus);
+}
+
+/* Standard interactive element transitions */
+.interactive {
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-default) var(--ease-out);
+}
+
+/* Glow effects - slightly slower onset */
+.glow-on-hover {
+  transition: box-shadow var(--duration-slow) var(--ease-out);
+}
+
+/* Panel reveal animation */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.panel-enter {
+  animation: slideIn var(--duration-default) var(--ease-out);
+}
+
+/* Nav button hover state - subtle warm glow */
+.nav-button:hover:not(:disabled) {
+  box-shadow: 0 0 8px rgba(232, 184, 74, 0.25);
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   TEXTURE CLASS
+   Apply to cards and surfaces for worn canvas/cloth feeling
+   ═════════════════════════════════════════════════════════════════════════════ */
+.textured {
+  position: relative;
+}
+
+.textured::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--texture-grain);
+  pointer-events: none;
+  opacity: 0.025;
+  mix-blend-mode: multiply;
+  border-radius: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  .textured::after {
+    mix-blend-mode: overlay;
+    opacity: 0.03;
+  }
+}

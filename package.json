@@ -1,0 +1,17 @@
+{
+  "name": "dialectic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Strategic intelligence workbench for dialectical reasoning",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@dialectic/web",
+    "build": "npm run build --workspace=@dialectic/web",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": ["dialectic", "reasoning", "strategy"],
+  "author": "Austin Salter",
+  "license": "MIT"
+}
