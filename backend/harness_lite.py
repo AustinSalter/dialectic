@@ -211,13 +211,34 @@ class MultiPassHarnessLite:
             # Record insight count for this cycle (for diminishing returns detection)
             self.scratchpad.record_cycle_insights(cycle_insights)
 
+            # BRANCHING: Check if conditions warrant creating branches
+            if self.scratchpad.should_branch():
+                branch_proposals = self.scratchpad.extract_branch_proposals()
+                await self.on_progress('branching_triggered', {
+                    'cycle': cycle,
+                    'confidence': self.scratchpad.current_confidence,
+                    'proposals': len(branch_proposals),
+                })
+
+                # Create branches for each proposal
+                for proposal in branch_proposals[:self.scratchpad.MAX_BRANCHES - len(self.scratchpad.get_active_branches())]:
+                    branch = self.scratchpad.create_branch(proposal)
+                    await self.on_progress('branch_created', {'branch_id': branch.id, 'thesis': proposal[:80]})
+
+                # Clear processed proposals
+                self.scratchpad.clear_branch_proposals()
+
+                # Run one cycle on each active branch
+                branch_results = await self._run_branch_cycles(cycle)
+                total_tokens += sum(r['tokens'] for r in branch_results)
+
             # Check termination (now uses combined strategy from EXP-010)
             termination_reason = self.scratchpad.check_termination(self.max_cycles)
             if termination_reason:
                 await self.on_progress('terminating', {'reason': termination_reason, 'cycle_insights': cycle_insights})
                 break
 
-        # Final synthesis
+        # Final synthesis (with branch merging if branches exist)
         synthesis = await self._run_synthesis()
         self.passes.append(synthesis)
         total_tokens += synthesis.tokens_used
@@ -415,6 +436,11 @@ For each technique, mark your findings:
 - [COUNTER] for counterarguments
 - [RISK] for identified risks
 - [QUESTION] for unresolved questions
+- [BRANCH] for mutually exclusive alternative thesis (e.g., "bull case" vs "bear case")
+
+Use [BRANCH] when you identify a fundamentally different interpretation that cannot be reconciled
+with the current thesis - both could be valid depending on assumptions. Example:
+[BRANCH] If regulatory approval fails, the entire thesis inverts: defensive positioning beats growth.
 
 After your critique, provide a confidence update:
 CONFIDENCE: 0.XX (brief reasoning)
@@ -452,9 +478,153 @@ Non-monotonic trajectories indicate genuine exploration.
             major_flaws_found=major_flaws_found,
         )
 
-    async def _run_synthesis(self) -> PassResult:
-        """Final synthesis pass"""
+    async def _run_branch_cycles(self, parent_cycle: int) -> list[dict]:
+        """
+        Run one expansion-compression cycle on each active branch.
+
+        Each branch gets its own focused analysis cycle to develop its thesis.
+        Results are stored in the scratchpad for synthesis merging.
+        """
+        results = []
+        active_branches = self.scratchpad.get_active_branches()
+
+        for branch in active_branches:
+            self.scratchpad.current_branch_id = branch.id
+            await self.on_progress('branch_cycle_start', {'branch_id': branch.id, 'thesis': branch.thesis[:50]})
+
+            # Run focused expansion on this branch's thesis
+            branch_expansion = await self._run_branch_expansion(parent_cycle, branch)
+            self.passes.append(branch_expansion)
+
+            # Compress
+            branch_compression = await self._run_compression(parent_cycle)
+            self.passes.append(branch_compression)
+
+            # Quick critique to update branch confidence
+            branch_critique = await self._run_branch_critique(parent_cycle, branch)
+            self.passes.append(branch_critique)
+
+            # Update branch confidence from critique
+            confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', branch_critique.content)
+            if confidence_match:
+                branch.confidence = float(confidence_match.group(1))
+
+            results.append({
+                'branch_id': branch.id,
+                'confidence': branch.confidence,
+                'tokens': branch_expansion.tokens_used + branch_compression.tokens_used + branch_critique.tokens_used,
+            })
+
+            await self.on_progress('branch_cycle_complete', {
+                'branch_id': branch.id,
+                'confidence': branch.confidence,
+            })
+
+        # Reset to no specific branch
+        self.scratchpad.current_branch_id = None
+        return results
+
+    async def _run_branch_expansion(self, cycle: int, branch) -> PassResult:
+        """Run expansion focused on a specific branch thesis."""
         start = datetime.now()
+
+        system = f"""You are in BRANCH EXPANSION mode for cycle {cycle}.
+
+## Branch Context
+**Branch ID**: {branch.id}
+**Branch Thesis**: {branch.thesis}
+**Parent Branch**: {branch.parent_id or 'root'}
+
+## Current Scratchpad
+{self.scratchpad.render()}
+
+## Your Task
+Explore this specific branch thesis. Assume it is TRUE and develop it:
+- What evidence supports this branch over alternatives?
+- What are the implications if this branch is correct?
+- What conditions must hold for this thesis to be valid?
+
+Mark findings with [INSIGHT], [EVIDENCE], [RISK], [COUNTER], [PATTERN].
+Focus on what differentiates this branch from alternatives.
+"""
+
+        user = f"Expand on branch '{branch.id}': {branch.thesis[:100]}"
+
+        content, tokens = await self._call_claude(system, user, max_tokens=2500)
+        insights_found = self.scratchpad.extract_and_merge(content)
+
+        duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+        return PassResult(
+            pass_type='branch_expansion',
+            content=content,
+            confidence=branch.confidence,
+            duration_ms=duration_ms,
+            tokens_used=tokens,
+            insights_found=insights_found,
+        )
+
+    async def _run_branch_critique(self, cycle: int, branch) -> PassResult:
+        """Run focused critique on a specific branch."""
+        start = datetime.now()
+
+        system = f"""You are critiquing a specific BRANCH thesis for cycle {cycle}.
+
+## Branch Context
+**Branch ID**: {branch.id}
+**Branch Thesis**: {branch.thesis}
+
+## Current Scratchpad
+{self.scratchpad.render()}
+
+## Your Task
+Evaluate this specific branch:
+1. What is the strongest argument AGAINST this branch thesis?
+2. What evidence would DISPROVE this branch?
+3. How does this branch compare to alternatives?
+
+Provide your assessment:
+CONFIDENCE: 0.XX (how likely is this branch thesis correct?)
+
+Be calibrated - don't inflate or deflate confidence artificially.
+"""
+
+        user = f"Critique branch '{branch.id}': {branch.thesis[:100]}"
+
+        content, tokens = await self._call_claude(system, user, max_tokens=1500)
+        insights_found = self.scratchpad.extract_and_merge(content)
+
+        duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+        return PassResult(
+            pass_type='branch_critique',
+            content=content,
+            confidence=branch.confidence,
+            duration_ms=duration_ms,
+            tokens_used=tokens,
+            insights_found=insights_found,
+        )
+
+    async def _run_synthesis(self) -> PassResult:
+        """Final synthesis pass with optional branch merging"""
+        start = datetime.now()
+
+        # Check if we have active branches to merge
+        active_branches = self.scratchpad.get_active_branches()
+        branch_context = ""
+
+        if active_branches:
+            branch_context = "\n## Active Branches to Merge\n"
+            for b in sorted(active_branches, key=lambda x: x.confidence, reverse=True):
+                branch_context += f"- **{b.id}** ({b.confidence*100:.0f}%): {b.thesis}\n"
+
+            branch_context += """
+## Branch Merge Strategy
+Choose ONE of these approaches:
+1. **SELECT**: If one branch clearly dominates (>20% confidence gap), select it as the thesis
+2. **CONDITIONAL**: If branches are close, synthesize as "Under condition X, thesis A; under condition Y, thesis B"
+3. **RECONCILE**: If branches can be reconciled, find the synthesis that accommodates both
+
+State your merge approach in the output.
+"""
 
         system = f"""You are in FINAL SYNTHESIS mode. Crystallize the analysis into a thesis.
 
@@ -466,7 +636,7 @@ Non-monotonic trajectories indicate genuine exploration.
 
 ## Trajectory Analysis
 {json.dumps(self.scratchpad.analyze_trajectory(), indent=2)}
-
+{branch_context}
 ## Your Task
 Form the final thesis with:
 
@@ -475,13 +645,23 @@ Form the final thesis with:
 3. **Evidence For**: Specific supporting points with @CLAIM references
 4. **Evidence Against**: Acknowledged limitations
 5. **Triggers**: Falsifiable conditions - "what would change this"
+{f'6. **Branch Resolution**: How branches were merged (if applicable)' if active_branches else ''}
 
 Output as structured markdown.
 """
 
         user = "Synthesize the final thesis from all accumulated analysis."
 
-        content, tokens = await self._call_claude(system, user, max_tokens=2000)
+        content, tokens = await self._call_claude(system, user, max_tokens=2500)
+
+        # If we had branches, update final confidence based on winning branch
+        winning_branch = self.scratchpad.get_winning_branch()
+        if winning_branch:
+            # Use winning branch confidence as a factor
+            self.scratchpad.current_confidence = (
+                self.scratchpad.current_confidence * 0.5 +
+                winning_branch.confidence * 0.5
+            )
 
         duration_ms = int((datetime.now() - start).total_seconds() * 1000)
         return PassResult(

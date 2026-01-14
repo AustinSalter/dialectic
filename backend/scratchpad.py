@@ -25,11 +25,12 @@ SEMANTIC_MARKERS = {
     'QUESTION': r'\[QUESTION\]([^\[]*?)(?=\[|$)',
     'DECISION': r'\[DECISION\]([^\[]*?)(?=\[|$)',
     'META': r'\[META\]([^\[]*?)(?=\[|$)',
+    'BRANCH': r'\[BRANCH\]([^\[]*?)(?=\[|$)',  # Alternative thesis path for branching
 }
 
 SectionType = Literal[
     'insights', 'evidence', 'risks', 'counters',
-    'questions', 'patterns', 'decisions', 'meta', 'claims'
+    'questions', 'patterns', 'decisions', 'meta', 'claims', 'branches'
 ]
 
 
@@ -58,6 +59,40 @@ class KeyEvidence:
 
     @classmethod
     def from_dict(cls, d: dict) -> "KeyEvidence":
+        return cls(**d)
+
+
+@dataclass
+class ThesisBranch:
+    """
+    A divergent thesis path for branching analysis.
+
+    When critique identifies mutually exclusive interpretations (e.g., "bull case"
+    vs "bear case"), the harness can branch to explore both paths independently.
+
+    Branching conditions (threshold-gated):
+    - Confidence < 0.4 after 2+ cycles (genuine uncertainty)
+    - Critique identifies [BRANCH] marker with alternative thesis
+    """
+    id: str
+    thesis: str  # The core thesis statement for this branch
+    confidence: float = 0.5
+    parent_id: str | None = None  # None for root branch
+    created_cycle: int = 0
+    is_active: bool = True
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "thesis": self.thesis,
+            "confidence": self.confidence,
+            "parent_id": self.parent_id,
+            "created_cycle": self.created_cycle,
+            "is_active": self.is_active,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ThesisBranch":
         return cls(**d)
 
 
@@ -99,6 +134,14 @@ class Scratchpad:
     # Insight counts per cycle - for diminishing returns detection (EXP-010)
     insight_counts: list[int] = field(default_factory=list)
 
+    # Thesis branches for divergent analysis paths
+    branches: list[ThesisBranch] = field(default_factory=list)
+    current_branch_id: str | None = None  # Which branch is currently active
+
+    # Branching thresholds
+    BRANCH_CONFIDENCE_THRESHOLD: float = 0.4  # Only branch if confidence below this
+    MAX_BRANCHES: int = 3  # Maximum number of active branches
+
     # Token budget (from EXP-009)
     MAX_TOKENS = 8000
 
@@ -115,6 +158,7 @@ class Scratchpad:
                 'patterns': Section(type='patterns', preserved=True),
                 'decisions': Section(type='decisions', preserved=True),
                 'meta': Section(type='meta', preserved=False),
+                'branches': Section(type='branches', preserved=True),  # Track branch proposals
             }
 
     def extract_and_merge(self, text: str) -> int:
@@ -133,6 +177,7 @@ class Scratchpad:
             'QUESTION': 'questions',
             'DECISION': 'decisions',
             'META': 'meta',
+            'BRANCH': 'branches',
         }
 
         new_insight_count = 0
@@ -223,6 +268,92 @@ class Scratchpad:
         self.insight_counts.append(count)
         self.last_updated = datetime.now()
 
+    # =====================
+    # Branch Management
+    # =====================
+
+    def should_branch(self) -> bool:
+        """
+        Check if conditions warrant creating a branch.
+
+        Branch when:
+        - Confidence < BRANCH_CONFIDENCE_THRESHOLD (genuine uncertainty)
+        - At least 2 cycles completed (enough exploration)
+        - Under MAX_BRANCHES limit
+        - At least one [BRANCH] proposal exists
+        """
+        if self.current_confidence >= self.BRANCH_CONFIDENCE_THRESHOLD:
+            return False
+        if self.cycle_count < 2:
+            return False
+        if len([b for b in self.branches if b.is_active]) >= self.MAX_BRANCHES:
+            return False
+        if not self.sections['branches'].content:
+            return False
+        return True
+
+    def create_branch(self, thesis: str, parent_id: str | None = None) -> ThesisBranch:
+        """
+        Create a new thesis branch.
+
+        Args:
+            thesis: The alternative thesis statement for this branch
+            parent_id: ID of parent branch (None for root-level branches)
+        """
+        branch_num = len(self.branches) + 1
+        branch = ThesisBranch(
+            id=f"branch-{branch_num}",
+            thesis=thesis,
+            confidence=self.current_confidence,
+            parent_id=parent_id or self.current_branch_id,
+            created_cycle=self.cycle_count,
+            is_active=True,
+        )
+        self.branches.append(branch)
+        self.last_updated = datetime.now()
+        return branch
+
+    def get_active_branches(self) -> list[ThesisBranch]:
+        """Get all active branches."""
+        return [b for b in self.branches if b.is_active]
+
+    def get_branch(self, branch_id: str) -> ThesisBranch | None:
+        """Get a branch by ID."""
+        for branch in self.branches:
+            if branch.id == branch_id:
+                return branch
+        return None
+
+    def update_branch_confidence(self, branch_id: str, confidence: float) -> None:
+        """Update confidence for a specific branch."""
+        branch = self.get_branch(branch_id)
+        if branch:
+            branch.confidence = max(0.0, min(1.0, confidence))
+            self.last_updated = datetime.now()
+
+    def deactivate_branch(self, branch_id: str) -> None:
+        """Deactivate a branch (e.g., when merging or pruning)."""
+        branch = self.get_branch(branch_id)
+        if branch:
+            branch.is_active = False
+            self.last_updated = datetime.now()
+
+    def get_winning_branch(self) -> ThesisBranch | None:
+        """Get the highest-confidence active branch."""
+        active = self.get_active_branches()
+        if not active:
+            return None
+        return max(active, key=lambda b: b.confidence)
+
+    def extract_branch_proposals(self) -> list[str]:
+        """Extract [BRANCH] proposals from the branches section."""
+        return self.sections['branches'].content.copy()
+
+    def clear_branch_proposals(self) -> None:
+        """Clear branch proposals after they've been processed."""
+        self.sections['branches'].content = []
+        self.sections['branches'].last_updated = datetime.now()
+
     def estimate_tokens(self) -> int:
         """Estimate token count (rough: 4 chars per token)"""
         total_chars = sum(
@@ -283,6 +414,15 @@ class Scratchpad:
                 lines.append(f"• [{marker}][{e.source}][{e.strength:.1f}] {e.content}")
             balance = self.get_evidence_balance()
             lines.append(f"  Balance: {balance['supporting_count']} supporting vs {balance['challenging_count']} challenging")
+            lines.append('')
+
+        # ACTIVE BRANCHES - Show divergent thesis paths being explored
+        active_branches = self.get_active_branches()
+        if active_branches:
+            lines.append("## ACTIVE BRANCHES")
+            for b in active_branches:
+                current_marker = "→ " if b.id == self.current_branch_id else "  "
+                lines.append(f"{current_marker}[{b.id}] ({b.confidence*100:.0f}%) {b.thesis[:80]}...")
             lines.append('')
 
         # Render each section with content
@@ -391,6 +531,8 @@ class Scratchpad:
             },
             'key_evidence': [e.to_dict() for e in self.key_evidence],
             'insight_counts': self.insight_counts,
+            'branches': [b.to_dict() for b in self.branches],
+            'current_branch_id': self.current_branch_id,
             'confidence_history': self.confidence_history,
             'current_confidence': self.current_confidence,
             'cycle_count': self.cycle_count,
@@ -424,4 +566,9 @@ class Scratchpad:
             for e in data.get('key_evidence', [])
         ]
         scratchpad.insight_counts = data.get('insight_counts', [])
+        scratchpad.branches = [
+            ThesisBranch.from_dict(b)
+            for b in data.get('branches', [])
+        ]
+        scratchpad.current_branch_id = data.get('current_branch_id')
         return scratchpad
