@@ -70,6 +70,7 @@ class PassResult:
     confidence: float
     duration_ms: int
     tokens_used: int
+    insights_found: int = 0  # New insights extracted (for diminishing returns)
 
 
 @dataclass
@@ -169,12 +170,14 @@ class MultiPassHarness:
             while True:
                 self.scratchpad.increment_cycle()
                 cycle = self.scratchpad.cycle_count
+                cycle_insights = 0  # Track insights for diminishing returns detection
                 self.on_progress('cycle_start', {'cycle': cycle})
 
                 # PASS 1: EXPANSION
                 expansion_result = await self._run_expansion(client, cycle)
                 self.passes.append(expansion_result)
                 total_tokens += expansion_result.tokens_used
+                cycle_insights += expansion_result.insights_found
                 self.on_progress('expansion_complete', {
                     'cycle': cycle,
                     'confidence': expansion_result.confidence,
@@ -185,6 +188,7 @@ class MultiPassHarness:
                 compression_result = await self._run_compression(client, cycle)
                 self.passes.append(compression_result)
                 total_tokens += compression_result.tokens_used
+                cycle_insights += compression_result.insights_found
                 self.on_progress('compression_complete', {
                     'cycle': cycle,
                     'confidence': compression_result.confidence,
@@ -195,16 +199,20 @@ class MultiPassHarness:
                 critique_result = await self._run_critique(client, cycle)
                 self.passes.append(critique_result)
                 total_tokens += critique_result.tokens_used
+                cycle_insights += critique_result.insights_found
                 self.on_progress('critique_complete', {
                     'cycle': cycle,
                     'confidence': critique_result.confidence,
                     'tokens': critique_result.tokens_used,
                 })
 
-                # Check termination
+                # Record insight count for this cycle (for diminishing returns detection)
+                self.scratchpad.record_cycle_insights(cycle_insights)
+
+                # Check termination (now uses combined strategy from EXP-010)
                 termination_reason = self.scratchpad.check_termination(self.max_cycles)
                 if termination_reason:
-                    self.on_progress('terminating', {'reason': termination_reason})
+                    self.on_progress('terminating', {'reason': termination_reason, 'cycle_insights': cycle_insights})
                     break
 
             # Final synthesis
@@ -377,8 +385,8 @@ After each pass, report your current CONFIDENCE level (0.0-1.0).
             if isinstance(message, ResultMessage):
                 tokens = message.usage.get('output_tokens', 0) if message.usage else 0
 
-        # Extract and merge marked content into scratchpad
-        self.scratchpad.extract_and_merge(content)
+        # Extract and merge marked content into scratchpad (returns new insight count)
+        insights_found = self.scratchpad.extract_and_merge(content)
 
         # Extract confidence update if present
         confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', content, re.IGNORECASE)
@@ -394,6 +402,7 @@ After each pass, report your current CONFIDENCE level (0.0-1.0).
             confidence=self.scratchpad.current_confidence,
             duration_ms=duration_ms,
             tokens_used=tokens,
+            insights_found=insights_found,
         )
 
     async def _run_expansion(self, client: ClaudeSDKClient, cycle: int) -> PassResult:

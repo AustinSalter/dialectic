@@ -10,6 +10,7 @@ This can be used when Agent SDK isn't installed, or for testing.
 import asyncio
 import json
 import os
+import re
 from typing import Callable, Any
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -41,6 +42,7 @@ class PassResult:
     confidence: float
     duration_ms: int
     tokens_used: int
+    insights_found: int = 0  # New insights extracted (for diminishing returns)
 
 
 @dataclass
@@ -163,30 +165,37 @@ class MultiPassHarnessLite:
         while True:
             self.scratchpad.increment_cycle()
             cycle = self.scratchpad.cycle_count
+            cycle_insights = 0  # Track insights for diminishing returns detection
             await self.on_progress('cycle_start', {'cycle': cycle})
 
             # EXPANSION
             expansion = await self._run_expansion(cycle)
             self.passes.append(expansion)
             total_tokens += expansion.tokens_used
+            cycle_insights += expansion.insights_found
             await self.on_progress('expansion_complete', {'cycle': cycle, 'confidence': expansion.confidence, 'tokens': expansion.tokens_used})
 
             # COMPRESSION
             compression = await self._run_compression(cycle)
             self.passes.append(compression)
             total_tokens += compression.tokens_used
+            cycle_insights += compression.insights_found
             await self.on_progress('compression_complete', {'cycle': cycle, 'confidence': compression.confidence, 'tokens': compression.tokens_used})
 
             # CRITIQUE
             critique = await self._run_critique(cycle)
             self.passes.append(critique)
             total_tokens += critique.tokens_used
+            cycle_insights += critique.insights_found
             await self.on_progress('critique_complete', {'cycle': cycle, 'confidence': critique.confidence, 'tokens': critique.tokens_used})
 
-            # Check termination
+            # Record insight count for this cycle (for diminishing returns detection)
+            self.scratchpad.record_cycle_insights(cycle_insights)
+
+            # Check termination (now uses combined strategy from EXP-010)
             termination_reason = self.scratchpad.check_termination(self.max_cycles)
             if termination_reason:
-                await self.on_progress('terminating', {'reason': termination_reason})
+                await self.on_progress('terminating', {'reason': termination_reason, 'cycle_insights': cycle_insights})
                 break
 
         # Final synthesis
@@ -254,8 +263,8 @@ Consider:
 
         content, tokens = await self._call_claude(system, user, max_tokens=4000)
 
-        # Extract marked content into scratchpad
-        self.scratchpad.extract_and_merge(content)
+        # Extract marked content into scratchpad (returns new insight count)
+        insights_found = self.scratchpad.extract_and_merge(content)
 
         duration_ms = int((datetime.now() - start).total_seconds() * 1000)
         return PassResult(
@@ -264,6 +273,7 @@ Consider:
             confidence=self.scratchpad.current_confidence,
             duration_ms=duration_ms,
             tokens_used=tokens,
+            insights_found=insights_found,
         )
 
     async def _run_compression(self, cycle: int) -> PassResult:
@@ -290,8 +300,8 @@ Every sentence should earn its place.
 
         content, tokens = await self._call_claude(system, user, max_tokens=2000)
 
-        # Update scratchpad
-        self.scratchpad.extract_and_merge(content)
+        # Update scratchpad (returns new insight count)
+        insights_found = self.scratchpad.extract_and_merge(content)
 
         duration_ms = int((datetime.now() - start).total_seconds() * 1000)
         return PassResult(
@@ -300,6 +310,7 @@ Every sentence should earn its place.
             confidence=self.scratchpad.current_confidence,
             duration_ms=duration_ms,
             tokens_used=tokens,
+            insights_found=insights_found,
         )
 
     async def _run_critique(self, cycle: int) -> PassResult:
@@ -332,11 +343,10 @@ Non-monotonic trajectories indicate genuine exploration.
 
         content, tokens = await self._call_claude(system, user, max_tokens=3000)
 
-        # Extract marked content
-        self.scratchpad.extract_and_merge(content)
+        # Extract marked content (returns new insight count)
+        insights_found = self.scratchpad.extract_and_merge(content)
 
         # Extract confidence update
-        import re
         confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', content)
         if confidence_match:
             new_confidence = float(confidence_match.group(1))
@@ -349,6 +359,7 @@ Non-monotonic trajectories indicate genuine exploration.
             confidence=self.scratchpad.current_confidence,
             duration_ms=duration_ms,
             tokens_used=tokens,
+            insights_found=insights_found,
         )
 
     async def _run_synthesis(self) -> PassResult:
