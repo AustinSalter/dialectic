@@ -29,6 +29,7 @@ from claude_agent_sdk import (
 )
 
 from scratchpad import Scratchpad
+from thesis_router import ThesisRouter, RouteType, RouterResult
 
 
 # Six questioning techniques from EXP-007 (validated 9x more flaws than naive)
@@ -107,6 +108,8 @@ class MultiPassHarness:
         self.on_progress = on_progress or (lambda *_: None)
         self.scratchpad: Scratchpad | None = None
         self.passes: list[PassResult] = []
+        self.router = ThesisRouter()
+        self.router_result: RouterResult | None = None
 
     async def run(
         self,
@@ -138,7 +141,17 @@ class MultiPassHarness:
                 snippet=claim.get('snippet', '')
             )
 
-        self.on_progress('initialized', {'session_id': session_id, 'claims': len(claims)})
+        # PASS 0: Thesis routing
+        self.router_result = self.router.route_with_enhancement(title, claims)
+
+        self.on_progress('initialized', {
+            'session_id': session_id,
+            'claims': len(claims),
+            'route_type': self.router_result.route_type.value,
+            'route_confidence': self.router_result.confidence,
+            'matched_theses': [t.id for t in self.router_result.matched_theses],
+            'matched_patterns': [p.id for p in self.router_result.matched_patterns],
+        })
 
         # Configure SDK options with subagents
         options = ClaudeAgentOptions(
@@ -385,9 +398,20 @@ After each pass, report your current CONFIDENCE level (0.0-1.0).
 
     async def _run_expansion(self, client: ClaudeSDKClient, cycle: int) -> PassResult:
         """Run expansion pass"""
+        # Include thesis context from Pass 0 routing
+        thesis_context = ""
+        if self.router_result:
+            thesis_context = f"""
+### Relevant Context (from Pass 0 Routing)
+**Route Type**: {self.router_result.route_type.value.upper()} | **Confidence**: {self.router_result.confidence:.0%}
+**Reasoning**: {self.router_result.reasoning}
+
+{self.router_result.assembled_context}
+"""
+
         prompt = f"""
 ## Cycle {cycle} - EXPANSION PASS
-
+{thesis_context}
 ### Current Scratchpad
 {self.scratchpad.render()}
 

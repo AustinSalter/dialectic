@@ -10,7 +10,7 @@ This is exposed as a custom MCP tool so the agent can read/write the scratchpad.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Optional
 from datetime import datetime
 import re
 import json
@@ -34,6 +34,34 @@ SectionType = Literal[
 
 
 @dataclass
+class KeyEvidence:
+    """
+    Critical evidence that should NEVER be compressed.
+
+    From working_memory.py: Solves the artifact trail problem identified in lit review.
+    Key evidence persists through all compression operations and is always shown in full.
+    """
+    content: str
+    source: str  # e.g., "CLAIM-1", "expansion_pass_2"
+    strength: float  # 0-1, how compelling
+    direction: Literal["supports", "challenges", "neutral"]
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def to_dict(self) -> dict:
+        return {
+            "content": self.content,
+            "source": self.source,
+            "strength": self.strength,
+            "direction": self.direction,
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "KeyEvidence":
+        return cls(**d)
+
+
+@dataclass
 class Section:
     """A section in the scratchpad"""
     type: SectionType
@@ -51,6 +79,10 @@ class Scratchpad:
     - Accumulated context enables frame-level reframing (EXP-005)
     - Semantic markers extract 3x more insights per token (EXP-008)
     - Non-monotonic confidence trajectories indicate genuine exploration (EXP-004)
+
+    Key evidence (from working_memory.py):
+    - Critical facts that should NEVER be compressed
+    - Solves artifact trail problem from lit review
     """
     session_id: str
     title: str
@@ -60,6 +92,9 @@ class Scratchpad:
     cycle_count: int = 0
     created: datetime = field(default_factory=datetime.now)
     last_updated: datetime = field(default_factory=datetime.now)
+
+    # Key evidence - NEVER compressed (from working_memory.py)
+    key_evidence: list[KeyEvidence] = field(default_factory=list)
 
     # Token budget (from EXP-009)
     MAX_TOKENS = 8000
@@ -117,6 +152,50 @@ class Scratchpad:
         if claim_str not in self.sections['claims'].content:
             self.sections['claims'].content.append(claim_str)
             self.sections['claims'].last_updated = datetime.now()
+
+    def add_key_evidence(
+        self,
+        content: str,
+        source: str,
+        strength: float = 0.7,
+        direction: Literal["supports", "challenges", "neutral"] = "supports"
+    ) -> None:
+        """
+        Add key evidence that should NEVER be compressed.
+
+        Key evidence persists through all compression operations and is
+        always shown in full in context strings. Use for critical facts
+        that must be preserved across iterations.
+
+        Args:
+            content: The evidence text
+            source: Where this came from (e.g., "CLAIM-1", "expansion_pass_2")
+            strength: How compelling (0-1)
+            direction: Whether it supports or challenges the thesis
+        """
+        evidence = KeyEvidence(
+            content=content,
+            source=source,
+            strength=strength,
+            direction=direction,
+        )
+        # Avoid duplicates
+        if not any(e.content == content for e in self.key_evidence):
+            self.key_evidence.append(evidence)
+            self.last_updated = datetime.now()
+
+    def get_evidence_balance(self) -> dict:
+        """Get summary of key evidence balance."""
+        supporting = [e for e in self.key_evidence if e.direction == "supports"]
+        challenging = [e for e in self.key_evidence if e.direction == "challenges"]
+
+        return {
+            "supporting_count": len(supporting),
+            "challenging_count": len(challenging),
+            "supporting_strength": sum(e.strength for e in supporting),
+            "challenging_strength": sum(e.strength for e in challenging),
+            "balance": sum(e.strength for e in supporting) - sum(e.strength for e in challenging),
+        }
 
     def update_confidence(self, new_confidence: float) -> None:
         """Update confidence and track trajectory"""
@@ -180,6 +259,16 @@ class Scratchpad:
             lines.append(f"Trajectory: {trajectory}")
 
         lines.append('')
+
+        # KEY EVIDENCE - Always shown first, never compressed
+        if self.key_evidence:
+            lines.append("## KEY EVIDENCE (Preserved)")
+            for e in self.key_evidence:
+                marker = "+" if e.direction == "supports" else "-" if e.direction == "challenges" else "○"
+                lines.append(f"• [{marker}][{e.source}][{e.strength:.1f}] {e.content}")
+            balance = self.get_evidence_balance()
+            lines.append(f"  Balance: {balance['supporting_count']} supporting vs {balance['challenging_count']} challenging")
+            lines.append('')
 
         # Render each section with content
         for section_type, section in self.sections.items():
@@ -272,6 +361,7 @@ class Scratchpad:
                 }
                 for k, v in self.sections.items()
             },
+            'key_evidence': [e.to_dict() for e in self.key_evidence],
             'confidence_history': self.confidence_history,
             'current_confidence': self.current_confidence,
             'cycle_count': self.cycle_count,
@@ -300,4 +390,8 @@ class Scratchpad:
             )
             for k, v in data['sections'].items()
         }
+        scratchpad.key_evidence = [
+            KeyEvidence.from_dict(e)
+            for e in data.get('key_evidence', [])
+        ]
         return scratchpad
