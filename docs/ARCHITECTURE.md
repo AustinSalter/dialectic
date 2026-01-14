@@ -1,6 +1,6 @@
 # Architecture
 
-## The Forge: A Workbench for High-Stakes Thinking
+## Dialetic: A Workbench for High-Stakes Thinking
 
 This document describes the dual-workflow architecture for shaping ideas and making decisions.
 
