@@ -96,6 +96,9 @@ class Scratchpad:
     # Key evidence - NEVER compressed (from working_memory.py)
     key_evidence: list[KeyEvidence] = field(default_factory=list)
 
+    # Insight counts per cycle - for diminishing returns detection (EXP-010)
+    insight_counts: list[int] = field(default_factory=list)
+
     # Token budget (from EXP-009)
     MAX_TOKENS = 8000
 
@@ -114,10 +117,12 @@ class Scratchpad:
                 'meta': Section(type='meta', preserved=False),
             }
 
-    def extract_and_merge(self, text: str) -> None:
+    def extract_and_merge(self, text: str) -> int:
         """
         Extract marked content from expansion output and merge into scratchpad.
         Uses semantic markers from EXP-003/EXP-008.
+
+        Returns the count of new insights extracted (for diminishing returns tracking).
         """
         marker_to_section: dict[str, SectionType] = {
             'INSIGHT': 'insights',
@@ -130,6 +135,8 @@ class Scratchpad:
             'META': 'meta',
         }
 
+        new_insight_count = 0
+
         for marker, pattern in SEMANTIC_MARKERS.items():
             section_type = marker_to_section[marker]
             matches = re.findall(pattern, text, re.IGNORECASE | re.DOTALL)
@@ -139,12 +146,15 @@ class Scratchpad:
                 if content and content not in self.sections[section_type].content:
                     self.sections[section_type].content.append(content)
                     self.sections[section_type].last_updated = datetime.now()
+                    new_insight_count += 1
 
         self.last_updated = datetime.now()
 
         # Compress if needed
         if self.estimate_tokens() > self.MAX_TOKENS:
             self._compress()
+
+        return new_insight_count
 
     def add_claim(self, claim_id: str, text: str, claim_type: str, snippet: str) -> None:
         """Add a claim from source material"""
@@ -206,6 +216,11 @@ class Scratchpad:
     def increment_cycle(self) -> None:
         """Increment cycle count"""
         self.cycle_count += 1
+        self.last_updated = datetime.now()
+
+    def record_cycle_insights(self, count: int) -> None:
+        """Record insight count for current cycle (for diminishing returns detection)."""
+        self.insight_counts.append(count)
         self.last_updated = datetime.now()
 
     def estimate_tokens(self) -> int:
@@ -282,7 +297,12 @@ class Scratchpad:
 
     def check_termination(self, max_cycles: int = 5) -> str | None:
         """
-        Check termination criteria (from EXP-010).
+        Check termination criteria using COMBINED strategy from EXP-010.
+
+        EXP-010 showed combined (saturation OR diminishing) achieves:
+        - 100% early termination (vs 0% for current-only)
+        - Quality maintained at 4.63/5
+
         Returns reason if should terminate, None otherwise.
         """
         # Hard limit
@@ -295,7 +315,7 @@ class Scratchpad:
 
         history = [*self.confidence_history, self.current_confidence]
 
-        # Saturation: delta_confidence < 0.05 for 2 cycles
+        # SATURATION: delta_confidence < 0.05 for 2 consecutive cycles
         if len(history) >= 3:
             recent = history[-3:]
             delta1 = abs(recent[1] - recent[0])
@@ -303,7 +323,15 @@ class Scratchpad:
             if delta1 < 0.05 and delta2 < 0.05:
                 return 'confidence_saturated'
 
-        # High confidence with few open questions
+        # DIMINISHING RETURNS: insight rate dropped by >50% from previous cycle
+        if len(self.insight_counts) >= 2:
+            recent_rate = self.insight_counts[-1]
+            prev_rate = self.insight_counts[-2]
+            # Avoid division by zero; if prev was 0, don't terminate on this criterion
+            if prev_rate > 0 and recent_rate < prev_rate * 0.5:
+                return 'diminishing_returns'
+
+        # HIGH CONFIDENCE STABLE (fallback)
         if self.current_confidence >= 0.75:
             open_questions = len(self.sections['questions'].content)
             if open_questions < 2:
@@ -362,6 +390,7 @@ class Scratchpad:
                 for k, v in self.sections.items()
             },
             'key_evidence': [e.to_dict() for e in self.key_evidence],
+            'insight_counts': self.insight_counts,
             'confidence_history': self.confidence_history,
             'current_confidence': self.current_confidence,
             'cycle_count': self.cycle_count,
@@ -394,4 +423,5 @@ class Scratchpad:
             KeyEvidence.from_dict(e)
             for e in data.get('key_evidence', [])
         ]
+        scratchpad.insight_counts = data.get('insight_counts', [])
         return scratchpad
