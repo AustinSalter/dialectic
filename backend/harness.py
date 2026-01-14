@@ -65,11 +65,13 @@ SIX_QUESTIONING_TECHNIQUES = """
 @dataclass
 class PassResult:
     """Result from a single pass"""
-    pass_type: str  # 'expansion', 'compression', 'critique', 'synthesis'
+    pass_type: str  # 'expansion', 'compression', 'critique', 'synthesis', 'targeted_expansion'
     content: str
     confidence: float
     duration_ms: int
     tokens_used: int
+    insights_found: int = 0  # New insights extracted (for diminishing returns)
+    major_flaws_found: int = 0  # COUNTER + RISK markers (for re-expansion trigger)
 
 
 @dataclass
@@ -169,12 +171,14 @@ class MultiPassHarness:
             while True:
                 self.scratchpad.increment_cycle()
                 cycle = self.scratchpad.cycle_count
+                cycle_insights = 0  # Track insights for diminishing returns detection
                 self.on_progress('cycle_start', {'cycle': cycle})
 
                 # PASS 1: EXPANSION
                 expansion_result = await self._run_expansion(client, cycle)
                 self.passes.append(expansion_result)
                 total_tokens += expansion_result.tokens_used
+                cycle_insights += expansion_result.insights_found
                 self.on_progress('expansion_complete', {
                     'cycle': cycle,
                     'confidence': expansion_result.confidence,
@@ -185,6 +189,7 @@ class MultiPassHarness:
                 compression_result = await self._run_compression(client, cycle)
                 self.passes.append(compression_result)
                 total_tokens += compression_result.tokens_used
+                cycle_insights += compression_result.insights_found
                 self.on_progress('compression_complete', {
                     'cycle': cycle,
                     'confidence': compression_result.confidence,
@@ -195,16 +200,39 @@ class MultiPassHarness:
                 critique_result = await self._run_critique(client, cycle)
                 self.passes.append(critique_result)
                 total_tokens += critique_result.tokens_used
+                cycle_insights += critique_result.insights_found
                 self.on_progress('critique_complete', {
                     'cycle': cycle,
                     'confidence': critique_result.confidence,
                     'tokens': critique_result.tokens_used,
+                    'major_flaws': critique_result.major_flaws_found,
                 })
 
-                # Check termination
+                # RE-EXPANSION: If critique found major flaws, run targeted re-expansion
+                if critique_result.major_flaws_found >= 3 and cycle < self.max_cycles:
+                    self.on_progress('re_expansion_triggered', {'cycle': cycle, 'flaws': critique_result.major_flaws_found})
+
+                    # Targeted re-expansion on identified flaws
+                    re_expansion_result = await self._run_targeted_expansion(client, cycle, critique_result.content)
+                    self.passes.append(re_expansion_result)
+                    total_tokens += re_expansion_result.tokens_used
+                    cycle_insights += re_expansion_result.insights_found
+                    self.on_progress('re_expansion_complete', {'cycle': cycle, 'insights': re_expansion_result.insights_found})
+
+                    # Re-compress after targeted expansion
+                    re_compression_result = await self._run_compression(client, cycle)
+                    self.passes.append(re_compression_result)
+                    total_tokens += re_compression_result.tokens_used
+                    cycle_insights += re_compression_result.insights_found
+                    # Don't re-critique immediately (avoid infinite loop)
+
+                # Record insight count for this cycle (for diminishing returns detection)
+                self.scratchpad.record_cycle_insights(cycle_insights)
+
+                # Check termination (now uses combined strategy from EXP-010)
                 termination_reason = self.scratchpad.check_termination(self.max_cycles)
                 if termination_reason:
-                    self.on_progress('terminating', {'reason': termination_reason})
+                    self.on_progress('terminating', {'reason': termination_reason, 'cycle_insights': cycle_insights})
                     break
 
             # Final synthesis
@@ -377,8 +405,13 @@ After each pass, report your current CONFIDENCE level (0.0-1.0).
             if isinstance(message, ResultMessage):
                 tokens = message.usage.get('output_tokens', 0) if message.usage else 0
 
-        # Extract and merge marked content into scratchpad
-        self.scratchpad.extract_and_merge(content)
+        # Extract and merge marked content into scratchpad (returns new insight count)
+        insights_found = self.scratchpad.extract_and_merge(content)
+
+        # Count major flaws (COUNTER + RISK markers) for re-expansion trigger
+        counter_count = len(re.findall(r'\[COUNTER\]', content, re.IGNORECASE))
+        risk_count = len(re.findall(r'\[RISK\]', content, re.IGNORECASE))
+        major_flaws_found = counter_count + risk_count
 
         # Extract confidence update if present
         confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', content, re.IGNORECASE)
@@ -394,6 +427,8 @@ After each pass, report your current CONFIDENCE level (0.0-1.0).
             confidence=self.scratchpad.current_confidence,
             duration_ms=duration_ms,
             tokens_used=tokens,
+            insights_found=insights_found,
+            major_flaws_found=major_flaws_found,
         )
 
     async def _run_expansion(self, client: ClaudeSDKClient, cycle: int) -> PassResult:
@@ -452,6 +487,58 @@ Output the compressed analysis with markers preserved.
 End with: CONFIDENCE: 0.XX (reasoning)
 """
         return await self._run_pass(client, 'compression', prompt)
+
+    async def _run_targeted_expansion(self, client: ClaudeSDKClient, cycle: int, critique_content: str) -> PassResult:
+        """
+        Targeted re-expansion triggered by critique findings.
+
+        When critique identifies >= 3 major flaws (COUNTER + RISK), this method
+        runs a focused expansion specifically addressing those issues.
+        """
+        # Extract the specific flaws from critique for targeted expansion
+        counters = re.findall(r'\[COUNTER\]([^\[]*?)(?=\[|$)', critique_content, re.IGNORECASE | re.DOTALL)
+        risks = re.findall(r'\[RISK\]([^\[]*?)(?=\[|$)', critique_content, re.IGNORECASE | re.DOTALL)
+
+        flaws_summary = ""
+        if counters:
+            flaws_summary += "**Counterarguments to address:**\n"
+            for i, c in enumerate(counters[:3], 1):  # Limit to 3
+                flaws_summary += f"{i}. {c.strip()}\n"
+        if risks:
+            flaws_summary += "\n**Risks to investigate:**\n"
+            for i, r in enumerate(risks[:3], 1):  # Limit to 3
+                flaws_summary += f"{i}. {r.strip()}\n"
+
+        prompt = f"""
+## Cycle {cycle} - TARGETED RE-EXPANSION PASS
+
+The adversarial critique identified significant flaws that need deeper investigation.
+
+### Current Scratchpad
+{self.scratchpad.render()}
+
+### Flaws to Address
+{flaws_summary}
+
+### Instructions
+Use the **expander** subagent to address the critique's major flaws.
+
+For EACH identified flaw:
+1. Explore whether it invalidates or merely qualifies the thesis
+2. Search for evidence that supports OR refutes the counterargument
+3. Consider if this reveals a more nuanced position
+
+Mark your findings:
+- [INSIGHT] for new understanding
+- [EVIDENCE] for supporting/refuting data
+- [COUNTER] if you find additional challenges
+- [PATTERN] for generalizable lessons
+
+Do NOT dismiss the critique. Either strengthen the thesis against it OR adjust the thesis to accommodate it.
+
+End with: CONFIDENCE: 0.XX (reasoning)
+"""
+        return await self._run_pass(client, 'targeted_expansion', prompt)
 
     async def _run_critique(self, client: ClaudeSDKClient, cycle: int) -> PassResult:
         """Run critique pass with 6 questioning techniques"""
