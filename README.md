@@ -56,12 +56,30 @@ Open http://localhost:5173
 ┌─────────────────────────────────────────────────────────────────┐
 │                     MULTI-PASS HARNESS                          │
 ├─────────────────────────────────────────────────────────────────┤
-│   Source → EXPANSION → COMPRESSION → CRITIQUE → SYNTHESIS       │
 │                                                                 │
-│   Markers: [INSIGHT] [EVIDENCE] [RISK] [COUNTER]                │
+│   Pass 0: ROUTING (FIT/ADJ/NEW) → Load relevant thesis context  │
+│                        ↓                                        │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  EXPANSION → COMPRESSION → CRITIQUE  (repeat N cycles)  │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│                        ↓                                        │
+│   Pass N: SYNTHESIS → Final thesis with triggers                │
+│                                                                 │
+│   Markers: [INSIGHT] [EVIDENCE] [RISK] [COUNTER] [PATTERN]      │
+│   Key Evidence: Critical facts preserved through compression    │
 │   Termination: saturation | confidence ≥ 0.75 | max-cycles      │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Pass 0: Thesis Routing
+
+Before analysis begins, queries are classified:
+
+| Route | When | Context Allocation |
+|-------|------|-------------------|
+| **FIT** | Matches existing thesis | 40% thesis, 30% data, 30% reasoning |
+| **ADJACENT** | Relates to known pattern | 30% pattern, 40% data, 30% reasoning |
+| **NET_NEW** | Fresh territory | 10% priors, 60% reasoning, 30% data |
 
 ### Validated Results
 
@@ -82,23 +100,35 @@ dialectic/
 │   ├── shared/           # Shared types
 │   └── desktop/          # Tauri wrapper (planned)
 ├── backend/
-│   ├── harness.py        # SDK version (Claude Agent SDK)
-│   ├── harness_lite.py   # Lite version (direct API)
 │   ├── server_lite.py    # FastAPI server
-│   ├── scratchpad.py     # Context accumulation
-│   └── thesis_router.py  # Thesis routing logic
+│   ├── harness_lite.py   # Direct API harness
+│   ├── harness.py        # SDK harness (Claude Agent SDK)
+│   ├── scratchpad.py     # Context accumulation + key evidence
+│   ├── thesis_router.py  # Pass 0: FIT/ADJ/NEW routing
+│   ├── memory.py         # File-based thesis/pattern persistence
+│   ├── metrics.py        # Quality analysis (insight density, etc.)
+│   └── compression_probes.py  # Eval framework for compression
+├── skills/               # Claude Code skills
+│   ├── workflow-stages/  # GATHER, SHAPE, CRITIQUE, SYNTHESIZE
+│   ├── cognitive-pitfalls/   # Structured self-critique
+│   ├── reasoning-harness/    # Multi-pass prompts
+│   ├── strategy-protocol/    # Decision framing
+│   └── thesis-management/    # FIT/ADJ/NEW routing
 └── docs/
     ├── DIALECTIC.md      # Core concepts
     ├── ARCHITECTURE.md   # System design
     └── EXPERIMENTS.md    # Validation results
 ```
 
-### Backend Options
+### Backend Components
 
-| File | Use When |
-|------|----------|
-| `harness_lite.py` | Quick start, no SDK dependency |
-| `harness.py` | Full subagent orchestration with Claude Agent SDK |
+| File | Purpose |
+|------|---------|
+| `harness_lite.py` | Direct Anthropic API, no SDK dependency |
+| `harness.py` | Claude Agent SDK with subagents (expander, compressor, critic) |
+| `scratchpad.py` | Accumulated context with semantic markers + key evidence (never compressed) |
+| `thesis_router.py` | Pass 0 routing: matches queries to existing theses/patterns |
+| `metrics.py` | InsightMetrics: causal chains, historical precedents, quantified predictions |
 
 ## Documentation
 
