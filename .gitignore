@@ -31,3 +31,10 @@ npm-debug.log*
 # Cache
 .cache/
 .vite/
+
+# Internal workflow docs (not for public repo)
+SYNC_PROTOCOL.md
+
+# Experiment outputs (raw results stay in Cannon/POC)
+backend/outputs/
+backend/run_*.py
