@@ -81,12 +81,14 @@ class MultiPassHarnessLite:
         api_key: str | None = None,
         max_cycles: int = 5,
         on_progress: Callable[[str, Any], None] | None = None,
+        analysis_mode: str = "retrospective",  # "forward" or "retrospective"
     ):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY required")
 
         self.max_cycles = max_cycles
+        self.analysis_mode = analysis_mode  # forward = predicting, retrospective = post-mortem
         # Default to async no-op if no progress handler provided
         async def noop(*_): pass
         self.on_progress = on_progress or noop
@@ -100,29 +102,44 @@ class MultiPassHarnessLite:
         system: str,
         user: str,
         max_tokens: int = 4096,
+        retries: int = 3,
     ) -> tuple[str, int]:
-        """Make API call to Claude"""
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                self.API_URL,
-                headers={
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": self.MODEL,
-                    "max_tokens": max_tokens,
-                    "system": system,
-                    "messages": [{"role": "user", "content": user}],
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+        """Make API call to Claude with retry logic"""
+        import asyncio
 
-        content = data["content"][0]["text"]
-        tokens = data["usage"]["output_tokens"]
-        return content, tokens
+        last_error = None
+        for attempt in range(retries):
+            try:
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    response = await client.post(
+                        self.API_URL,
+                        headers={
+                            "x-api-key": self.api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json={
+                            "model": self.MODEL,
+                            "max_tokens": max_tokens,
+                            "system": system,
+                            "messages": [{"role": "user", "content": user}],
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                content = data["content"][0]["text"]
+                tokens = data["usage"]["output_tokens"]
+                return content, tokens
+
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                last_error = e
+                if attempt < retries - 1:
+                    wait_time = (2 ** attempt) * 2  # 2, 4, 8 seconds
+                    print(f"  [RETRY] Attempt {attempt + 1} failed, waiting {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+
+        raise last_error
 
     async def run(
         self,
@@ -134,8 +151,9 @@ class MultiPassHarnessLite:
         start_time = datetime.now()
         session_id = f"harness-{int(start_time.timestamp())}"
 
-        # Initialize scratchpad
+        # Initialize scratchpad with analysis mode
         self.scratchpad = Scratchpad(session_id=session_id, title=title)
+        self.scratchpad.confidence_model.analysis_mode = self.analysis_mode
         self.passes = []
 
         # Add claims
@@ -188,7 +206,13 @@ class MultiPassHarnessLite:
             self.passes.append(critique)
             total_tokens += critique.tokens_used
             cycle_insights += critique.insights_found
-            await self.on_progress('critique_complete', {'cycle': cycle, 'confidence': critique.confidence, 'tokens': critique.tokens_used, 'major_flaws': critique.major_flaws_found})
+            await self.on_progress('critique_complete', {
+                'cycle': cycle,
+                'confidence': critique.confidence,
+                'confidence_model': self.scratchpad.confidence_model.summary,
+                'tokens': critique.tokens_used,
+                'major_flaws': critique.major_flaws_found,
+            })
 
             # RE-EXPANSION: If critique found major flaws, run targeted re-expansion
             if critique.major_flaws_found >= 3 and cycle < self.max_cycles:
@@ -419,53 +443,128 @@ Do NOT dismiss the critique. Either strengthen the thesis against it OR adjust t
         )
 
     async def _run_critique(self, cycle: int) -> PassResult:
-        """Critique pass with 6 questioning techniques"""
+        """Critique pass with fallacy detection and evidence quality assessment"""
         start = datetime.now()
 
-        system = f"""You are an ADVERSARIAL CRITIC for cycle {cycle}.
+        # Mode-specific guidance
+        mode = self.analysis_mode
+        if mode == "retrospective":
+            mode_guidance = """
+## Analysis Mode: RETROSPECTIVE (Post-Mortem)
+This is a retrospective case study where the outcome is known. The goal is to understand
+WHY things happened, not to predict what WILL happen.
+
+In retrospective mode:
+- [HINDSIGHT] and [SURVIVORSHIP] are EXPECTED and VALUABLE - mark them to track insights
+  derived from knowing the outcome, but do NOT penalize reasoning quality for using them
+- These become "retrospective insights" that inform the causal analysis
+- Focus fallacy detection on: confirmation bias, false dichotomy, circular reasoning
+"""
+        else:
+            mode_guidance = """
+## Analysis Mode: FORWARD (Predictive)
+This is forward-looking analysis where the outcome is uncertain. The goal is to predict
+what WILL happen based on current information.
+
+In forward mode:
+- [HINDSIGHT] is a serious fallacy - using future information to "predict"
+- [SURVIVORSHIP] is a serious fallacy - only looking at winners
+- Both should reduce reasoning quality score significantly
+"""
+
+        system = f"""You are a DIALECTICAL CRITIC for cycle {cycle}. Your job is SUBLATION -
+to assess whether we've found the RIGHT insight at the RIGHT level of abstraction,
+not just whether our evidence is technically sound.
 
 ## Current Scratchpad
 {self.scratchpad.render()}
 
-{SIX_QUESTIONING_TECHNIQUES}
+{mode_guidance}
 
-## Your Task
-Apply ALL six techniques to stress-test the analysis:
+## Your Task: Dialectical Critique (Sublation)
 
-For each technique, mark your findings:
-- [COUNTER] for counterarguments
-- [RISK] for identified risks
-- [QUESTION] for unresolved questions
-- [BRANCH] for mutually exclusive alternative thesis (e.g., "bull case" vs "bear case")
+### Part 1: ABSTRACTION CHECK
+Is the analysis at the right level? Mark issues:
+- [TOO_GRANULAR] Lost in operational details when strategic insight needed
+- [TOO_ABSTRACT] Missing concrete mechanisms that explain WHY
+- [RIGHT_LEVEL] Analysis is at appropriate strategic abstraction
 
-Use [BRANCH] when you identify a fundamentally different interpretation that cannot be reconciled
-with the current thesis - both could be valid depending on assumptions. Example:
-[BRANCH] If regulatory approval fails, the entire thesis inverts: defensive positioning beats growth.
+Ask: "Would a professor circle this as the key insight, or write 'so what?' in the margin?"
 
-After your critique, provide a confidence update:
-CONFIDENCE: 0.XX (brief reasoning)
+### Part 2: ESSENTIAL TENSION
+Have we identified the core dilemma/trade-off? Mark:
+- [TENSION_FOUND] Clear articulation of the fundamental trade-off or dilemma
+- [TENSION_MISSING] Analysis describes WHAT happened but not the underlying tension
+- [TENSION_WRONG] Identified a tension but it's not the essential one
 
-If you found significant flaws, confidence should DECREASE.
-Non-monotonic trajectories indicate genuine exploration.
+Common strategic tensions to look for:
+- Innovator's dilemma (profitable present vs uncertain future)
+- Exploitation vs exploration
+- Scale vs agility
+- Short-term vs long-term optimization
+
+### Part 3: FRAMEWORK FIT
+Does this map to established strategic concepts?
+- [FRAMEWORK] Name the applicable framework (Christensen, Porter, BCG, etc.)
+- [NOVEL] Insight doesn't fit existing frameworks - potentially original contribution
+- [MISAPPLIED] Framework invoked but doesn't actually fit the situation
+
+### Part 4: TRANSFERABLE INSIGHT
+Is there a lesson that applies beyond this specific case?
+- [TRANSFERABLE] Clear principle that generalizes
+- [CASE_SPECIFIC] Analysis is too tied to particulars of this situation
+- [UNIVERSAL] Insight is so general it's not actionable
+
+### Part 5: REFRAME PROPOSALS
+If the current thesis is at wrong level or missing the essential tension:
+- [REFRAME] Propose a better formulation of the core insight
+- [ELEVATE] Suggest how to move from operational to strategic level
+- [BRANCH] Fundamentally different interpretation worth exploring
+
+## Confidence Update
+REASONING_QUALITY: 0.XX (1.0 = right abstraction level, essential tension found)
+EVIDENCE_QUALITY: 0.XX (1.0 = sufficient support for the insight level claimed)
+CONCLUSION_CONFIDENCE: 0.XX (confidence this IS the key insight)
+
+{"For RETROSPECTIVE: The goal is to extract the strategic lesson, not to prove causation beyond doubt. Hindsight is the tool, not the enemy." if mode == "retrospective" else "For FORWARD: Focus on whether we're asking the right strategic question."}
 """
 
-        user = f"Cycle {cycle}: Apply all six questioning techniques. Be ruthless but fair."
+        user = f"Cycle {cycle}: Assess reasoning quality, evidence quality, and substantive issues separately."
 
         content, tokens = await self._call_claude(system, user, max_tokens=3000)
 
         # Extract marked content (returns new insight count)
         insights_found = self.scratchpad.extract_and_merge(content)
 
-        # Count major flaws (COUNTER + RISK markers) for re-expansion trigger
-        counter_count = len(re.findall(r'\[COUNTER\]', content, re.IGNORECASE))
-        risk_count = len(re.findall(r'\[RISK\]', content, re.IGNORECASE))
-        major_flaws_found = counter_count + risk_count
+        # Count dialectical issues that warrant re-expansion
+        # These indicate we're at wrong abstraction level or missing the insight
+        too_granular = len(re.findall(r'\[TOO_GRANULAR\]', content, re.IGNORECASE))
+        tension_missing = len(re.findall(r'\[TENSION_MISSING\]', content, re.IGNORECASE))
+        tension_wrong = len(re.findall(r'\[TENSION_WRONG\]', content, re.IGNORECASE))
+        reframe_proposed = len(re.findall(r'\[REFRAME\]', content, re.IGNORECASE))
+        elevate_proposed = len(re.findall(r'\[ELEVATE\]', content, re.IGNORECASE))
 
-        # Extract confidence update
-        confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', content)
-        if confidence_match:
-            new_confidence = float(confidence_match.group(1))
-            self.scratchpad.update_confidence(new_confidence)
+        # Re-expand if we need to change abstraction level or find the real tension
+        # These are "sublation triggers" - the current thesis needs transcending
+        major_flaws_found = (too_granular * 2) + (tension_missing * 2) + tension_wrong + reframe_proposed + elevate_proposed
+
+        # Extract three-part confidence update
+        reasoning_match = re.search(r'REASONING_QUALITY:\s*(0\.\d+)', content)
+        evidence_match = re.search(r'EVIDENCE_QUALITY:\s*(0\.\d+)', content)
+        conclusion_match = re.search(r'CONCLUSION_CONFIDENCE:\s*(0\.\d+)', content)
+
+        if reasoning_match and evidence_match and conclusion_match:
+            # Use new three-part confidence model
+            self.scratchpad.confidence_model.reasoning_quality = float(reasoning_match.group(1))
+            self.scratchpad.confidence_model.evidence_quality = float(evidence_match.group(1))
+            conclusion_conf = float(conclusion_match.group(1))
+            self.scratchpad.update_confidence_from_critique(content, conclusion_conf)
+        else:
+            # Fallback to old single confidence
+            confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', content)
+            if confidence_match:
+                new_confidence = float(confidence_match.group(1))
+                self.scratchpad.update_confidence(new_confidence)
 
         duration_ms = int((datetime.now() - start).total_seconds() * 1000)
         return PassResult(

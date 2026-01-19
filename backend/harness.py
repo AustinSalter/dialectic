@@ -28,7 +28,7 @@ from claude_agent_sdk import (
     ResultMessage,
 )
 
-from scratchpad import Scratchpad
+from scratchpad import Scratchpad, ConfidenceModel, AnalysisMode
 from thesis_router import ThesisRouter, RouteType, RouterResult
 
 
@@ -72,6 +72,7 @@ class PassResult:
     tokens_used: int
     insights_found: int = 0  # New insights extracted (for diminishing returns)
     major_flaws_found: int = 0  # COUNTER + RISK markers (for re-expansion trigger)
+    confidence_model: dict | None = None  # 3-dimensional confidence breakdown
 
 
 @dataclass
@@ -104,11 +105,14 @@ class MultiPassHarness:
     def __init__(
         self,
         max_cycles: int = 5,
-        on_progress: Callable[[str, Any], None] | None = None
+        on_progress: Callable[[str, Any], None] | None = None,
+        analysis_mode: AnalysisMode = "retrospective",
     ):
         self.max_cycles = max_cycles
         self.on_progress = on_progress or (lambda *_: None)
+        self.analysis_mode = analysis_mode
         self.scratchpad: Scratchpad | None = None
+        self.confidence_model: ConfidenceModel | None = None
         self.passes: list[PassResult] = []
         self.router = ThesisRouter()
         self.router_result: RouterResult | None = None
@@ -130,8 +134,9 @@ class MultiPassHarness:
         start_time = datetime.now()
         session_id = f"harness-{int(start_time.timestamp())}"
 
-        # Initialize scratchpad
+        # Initialize scratchpad and confidence model
         self.scratchpad = Scratchpad(session_id=session_id, title=title)
+        self.confidence_model = ConfidenceModel(analysis_mode=self.analysis_mode)
         self.passes = []
 
         # Add claims to scratchpad
@@ -206,6 +211,7 @@ class MultiPassHarness:
                     'confidence': critique_result.confidence,
                     'tokens': critique_result.tokens_used,
                     'major_flaws': critique_result.major_flaws_found,
+                    'confidence_model': critique_result.confidence_model,
                 })
 
                 # RE-EXPANSION: If critique found major flaws, run targeted re-expansion
@@ -334,21 +340,24 @@ Output should be dense and actionable. Every sentence should earn its place.""",
                 model="haiku",  # Haiku is sufficient for compression
             ),
             "critic": AgentDefinition(
-                description="Adversarial critic for stress-testing theses. Use for finding flaws and gaps.",
-                prompt=f"""You are an ADVERSARIAL CRITIC. Your job is to find flaws in the analysis.
+                description="Dialectical critic for sublation. Assesses abstraction level and essential tension.",
+                prompt="""You are a DIALECTICAL CRITIC. Your job is SUBLATION - to assess whether
+the analysis has found the RIGHT insight at the RIGHT level of abstraction.
 
-{SIX_QUESTIONING_TECHNIQUES}
+NOT "is this evidence sound?" but "is this the key insight a professor would circle?"
 
-Be ruthless but fair. Mark your findings:
-- [COUNTER] for counterarguments
-- [RISK] for identified risks
-- [QUESTION] for unresolved questions
+Mark your assessments:
+- [TOO_GRANULAR] / [TOO_ABSTRACT] / [RIGHT_LEVEL] - abstraction check
+- [TENSION_FOUND] / [TENSION_MISSING] / [TENSION_WRONG] - essential dilemma
+- [FRAMEWORK] Name applicable framework (Christensen, Porter, etc.)
+- [TRANSFERABLE] / [CASE_SPECIFIC] - does insight generalize?
+- [REFRAME] / [ELEVATE] - proposals to improve abstraction level
 
-After your critique, state your updated confidence:
-CONFIDENCE: 0.XX (brief reasoning why)
-
-Confidence should DECREASE if you found significant flaws.
-Non-monotonic confidence trajectories are good - they indicate genuine exploration.""",
+After critique, provide three confidence scores:
+CONFIDENCE_MODEL: R=0.XX E=0.XX C=0.XX
+- R = right abstraction level achieved
+- E = sufficient support for the insight
+- C = confidence this IS the strategic lesson""",
                 model="sonnet",
             ),
             "synthesizer": AgentDefinition(
@@ -438,10 +447,16 @@ After each pass, report your current CONFIDENCE level (0.0-1.0).
         # Extract and merge marked content into scratchpad (returns new insight count)
         insights_found = self.scratchpad.extract_and_merge(content)
 
-        # Count major flaws (COUNTER + RISK markers) for re-expansion trigger
-        counter_count = len(re.findall(r'\[COUNTER\]', content, re.IGNORECASE))
-        risk_count = len(re.findall(r'\[RISK\]', content, re.IGNORECASE))
-        major_flaws_found = counter_count + risk_count
+        # Count dialectical issues that warrant re-expansion (sublation triggers)
+        # These indicate we're at wrong abstraction level or missing the insight
+        too_granular = len(re.findall(r'\[TOO_GRANULAR\]', content, re.IGNORECASE))
+        tension_missing = len(re.findall(r'\[TENSION_MISSING\]', content, re.IGNORECASE))
+        tension_wrong = len(re.findall(r'\[TENSION_WRONG\]', content, re.IGNORECASE))
+        reframe_proposed = len(re.findall(r'\[REFRAME\]', content, re.IGNORECASE))
+        elevate_proposed = len(re.findall(r'\[ELEVATE\]', content, re.IGNORECASE))
+
+        # Re-expand if we need to change abstraction level or find the real tension
+        major_flaws_found = (too_granular * 2) + (tension_missing * 2) + tension_wrong + reframe_proposed + elevate_proposed
 
         # Extract confidence update if present
         confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', content, re.IGNORECASE)
@@ -571,36 +586,91 @@ End with: CONFIDENCE: 0.XX (reasoning)
         return await self._run_pass(client, 'targeted_expansion', prompt)
 
     async def _run_critique(self, client: ClaudeSDKClient, cycle: int) -> PassResult:
-        """Run critique pass with 6 questioning techniques"""
+        """Run dialectical critique (sublation) - assess abstraction level and essential tension"""
+        # Mode-specific guidance
+        if self.analysis_mode == "retrospective":
+            mode_guidance = """
+## Analysis Mode: RETROSPECTIVE (Post-Mortem)
+The goal is to extract the STRATEGIC LESSON, not to prove causation beyond doubt.
+Hindsight is the tool, not the enemy. Use it to find the transferable insight.
+"""
+        else:
+            mode_guidance = """
+## Analysis Mode: FORWARD (Prediction)
+Focus on whether we're asking the RIGHT strategic question at the RIGHT level.
+"""
+
         prompt = f"""
-## Cycle {cycle} - CRITIQUE PASS
+## Cycle {cycle} - DIALECTICAL CRITIQUE (Sublation)
+{mode_guidance}
 
 ### Current Scratchpad
 {self.scratchpad.render()}
 
 ### Instructions
-Use the **critic** subagent to stress-test the analysis.
+Use the **critic** subagent for SUBLATION - assess whether we've found the RIGHT insight
+at the RIGHT level of abstraction, not just whether evidence is technically sound.
 
-Apply ALL six questioning techniques:
-1. **INVERSION**: What if the opposite were true?
-2. **SECOND-ORDER**: What are the downstream effects?
-3. **FALSIFICATION**: What evidence would disprove this?
-4. **BASE RATES**: What do historical priors suggest?
-5. **INCENTIVE AUDIT**: Who benefits from this being believed?
-6. **ADVERSARY SIMULATION**: How would a smart skeptic attack?
+## Part 1: ABSTRACTION CHECK
+Is the analysis at the right level? Mark:
+- [TOO_GRANULAR] Lost in operational details when strategic insight needed
+- [TOO_ABSTRACT] Missing concrete mechanisms that explain WHY
+- [RIGHT_LEVEL] Analysis is at appropriate strategic abstraction
 
-Mark findings with [COUNTER], [RISK], [QUESTION], and [BRANCH].
+Ask: "Would a professor circle this as the key insight, or write 'so what?' in the margin?"
 
-Use [BRANCH] when you identify a fundamentally different interpretation that cannot be reconciled
-with the current thesis - both could be valid depending on assumptions. Example:
-[BRANCH] If regulatory approval fails, the entire thesis inverts: defensive positioning beats growth.
+## Part 2: ESSENTIAL TENSION
+Have we identified the core dilemma/trade-off? Mark:
+- [TENSION_FOUND] Clear articulation of the fundamental trade-off
+- [TENSION_MISSING] Describes WHAT happened but not the underlying tension
+- [TENSION_WRONG] Identified a tension but it's not the essential one
 
-If you found significant flaws, your confidence should DECREASE.
-Non-monotonic confidence trajectories indicate genuine exploration.
+Look for: Innovator's dilemma, exploitation vs exploration, scale vs agility, short vs long-term
 
-End with: CONFIDENCE: 0.XX (reasoning based on critique findings)
+## Part 3: FRAMEWORK FIT
+Does this map to established strategic concepts?
+- [FRAMEWORK] Name the applicable framework (Christensen, Porter, BCG, etc.)
+- [NOVEL] Insight doesn't fit existing frameworks - potentially original
+- [MISAPPLIED] Framework invoked but doesn't actually fit
+
+## Part 4: TRANSFERABLE INSIGHT
+Is there a lesson that applies beyond this case?
+- [TRANSFERABLE] Clear principle that generalizes
+- [CASE_SPECIFIC] Too tied to particulars of this situation
+
+## Part 5: REFRAME PROPOSALS
+If current thesis is at wrong level:
+- [REFRAME] Propose a better formulation of the core insight
+- [ELEVATE] Suggest how to move from operational to strategic level
+- [BRANCH] Fundamentally different interpretation worth exploring
+
+### Confidence Update
+REASONING_QUALITY: 0.XX (1.0 = right abstraction, essential tension found)
+EVIDENCE_QUALITY: 0.XX (1.0 = sufficient support for claimed insight level)
+CONCLUSION_CONFIDENCE: 0.XX (confidence this IS the key strategic insight)
+
+End with:
+CONFIDENCE_MODEL: R=0.XX E=0.XX C=0.XX (brief reasoning)
 """
-        return await self._run_pass(client, 'critique', prompt)
+        result = await self._run_pass(client, 'critique', prompt)
+
+        # Update confidence model from critique content
+        self.confidence_model.update_from_critique(result.content)
+
+        # Try to parse explicit R/E/C from output
+        model_match = re.search(r'R=(\d\.\d+)\s*E=(\d\.\d+)\s*C=(\d\.\d+)', result.content)
+        if model_match:
+            self.confidence_model.reasoning_quality = float(model_match.group(1))
+            self.confidence_model.evidence_quality = float(model_match.group(2))
+            self.confidence_model.conclusion_confidence = float(model_match.group(3))
+
+        # Update scratchpad confidence with composite
+        self.scratchpad.update_confidence(self.confidence_model.composite_confidence)
+
+        # Add confidence_model to result
+        result.confidence_model = self.confidence_model.summary
+
+        return result
 
     async def _run_synthesis(self, client: ClaudeSDKClient) -> PassResult:
         """Run final synthesis pass with optional branch merging"""

@@ -28,6 +28,35 @@ SEMANTIC_MARKERS = {
     'BRANCH': r'\[BRANCH\]([^\[]*?)(?=\[|$)',  # Alternative thesis path for branching
 }
 
+# Fallacy markers for reasoning quality assessment
+# Split into "always bad" and "context-dependent"
+FALLACY_MARKERS_ALWAYS = {
+    'FALSE_DICHOTOMY': r'\[FALSE_DICHOTOMY\]([^\[]*?)(?=\[|$)',  # Ignoring middle options
+    'SUNK_COST': r'\[SUNK_COST\]([^\[]*?)(?=\[|$)',  # Weighting past investment
+    'CONFIRMATION': r'\[CONFIRMATION\]([^\[]*?)(?=\[|$)',  # Cherry-picking evidence
+    'PLANNING_FALLACY': r'\[PLANNING_FALLACY\]([^\[]*?)(?=\[|$)',  # Underestimating difficulty
+    'CIRCULAR': r'\[CIRCULAR\]([^\[]*?)(?=\[|$)',  # Assuming conclusion in premise
+    'AUTHORITY': r'\[AUTHORITY\]([^\[]*?)(?=\[|$)',  # Relying on prestige not evidence
+}
+
+# These are fallacies in FORWARD mode, but expected/valuable in RETROSPECTIVE mode
+FALLACY_MARKERS_FORWARD_ONLY = {
+    'SURVIVORSHIP': r'\[SURVIVORSHIP\]([^\[]*?)(?=\[|$)',  # Only looking at winners
+    'HINDSIGHT': r'\[HINDSIGHT\]([^\[]*?)(?=\[|$)',  # Retrofitting with knowledge unavailable then
+}
+
+# Combined for backwards compatibility
+FALLACY_MARKERS = {**FALLACY_MARKERS_ALWAYS, **FALLACY_MARKERS_FORWARD_ONLY}
+
+# Evidence quality markers for epistemic assessment
+EVIDENCE_QUALITY_MARKERS = {
+    'UNVERIFIED': r'\[UNVERIFIED\]([^\[]*?)(?=\[|$)',  # Claim without source
+    'INCOMPLETE': r'\[INCOMPLETE\]([^\[]*?)(?=\[|$)',  # Missing key data
+    'CONTRADICTED': r'\[CONTRADICTED\]([^\[]*?)(?=\[|$)',  # Conflicts with other evidence
+    'UNSTABLE': r'\[UNSTABLE\]([^\[]*?)(?=\[|$)',  # Premise could change
+    'DATED': r'\[DATED\]([^\[]*?)(?=\[|$)',  # Evidence may be stale
+}
+
 SectionType = Literal[
     'insights', 'evidence', 'risks', 'counters',
     'questions', 'patterns', 'decisions', 'meta', 'claims', 'branches'
@@ -60,6 +89,146 @@ class KeyEvidence:
     @classmethod
     def from_dict(cls, d: dict) -> "KeyEvidence":
         return cls(**d)
+
+
+AnalysisMode = Literal["forward", "retrospective"]
+
+
+@dataclass
+class ConfidenceModel:
+    """
+    Three-dimensional confidence model separating:
+    1. Reasoning quality - Is the logical structure sound? (Fallacy-free)
+    2. Evidence quality - How reliable/complete is the foundation? (Epistemic)
+    3. Conclusion confidence - How certain given the above? (Output)
+
+    Supports two analysis modes:
+    - FORWARD: Predicting future outcomes (hindsight/survivorship are fallacies)
+    - RETROSPECTIVE: Understanding past outcomes (hindsight is expected/valuable)
+
+    This prevents "analysis paralysis" where acknowledging uncertainty
+    gets flagged as low confidence even when reasoning is sound.
+    """
+    reasoning_quality: float = 1.0  # 1.0 = no fallacies detected
+    evidence_quality: float = 1.0   # 1.0 = all evidence verified/complete
+    conclusion_confidence: float = 0.5  # Domain uncertainty
+    analysis_mode: AnalysisMode = "retrospective"  # Default to retrospective for case studies
+
+    # Tracked issues
+    fallacies_found: list[str] = field(default_factory=list)
+    evidence_gaps: list[str] = field(default_factory=list)
+    retrospective_insights: list[str] = field(default_factory=list)  # Hindsight used productively
+
+    def update_from_critique(self, critique_text: str) -> None:
+        """
+        Extract fallacy and evidence markers from critique output.
+
+        Key design: Confidence should BOUNCE, not just decline.
+        - Issues found THIS cycle affect THIS cycle's scores
+        - Zero confidence = genuine aporia (180-degree reframe needed)
+        - Normal critique should keep confidence in 0.4-0.8 range
+        """
+        # Count issues found THIS cycle (not cumulative)
+        cycle_fallacies = []
+        cycle_evidence_gaps = []
+
+        # Count always-bad fallacies
+        for marker, pattern in FALLACY_MARKERS_ALWAYS.items():
+            matches = re.findall(pattern, critique_text, re.DOTALL)
+            for match in matches:
+                issue = f"{marker}: {match.strip()[:100]}"
+                cycle_fallacies.append(issue)
+                if issue not in self.fallacies_found:
+                    self.fallacies_found.append(issue)
+
+        # Handle mode-dependent markers
+        for marker, pattern in FALLACY_MARKERS_FORWARD_ONLY.items():
+            matches = re.findall(pattern, critique_text, re.DOTALL)
+            for match in matches:
+                if self.analysis_mode == "forward":
+                    issue = f"{marker}: {match.strip()[:100]}"
+                    cycle_fallacies.append(issue)
+                    if issue not in self.fallacies_found:
+                        self.fallacies_found.append(issue)
+                else:
+                    # In retrospective mode, these are valuable insights
+                    insight = f"{marker}: {match.strip()[:100]}"
+                    if insight not in self.retrospective_insights:
+                        self.retrospective_insights.append(insight)
+
+        # Count evidence gaps
+        for marker, pattern in EVIDENCE_QUALITY_MARKERS.items():
+            matches = re.findall(pattern, critique_text, re.DOTALL)
+            for match in matches:
+                issue = f"{marker}: {match.strip()[:100]}"
+                cycle_evidence_gaps.append(issue)
+                if issue not in self.evidence_gaps:
+                    self.evidence_gaps.append(issue)
+
+        # Update scores based on THIS CYCLE's issues (allows bounce-back)
+        # Fewer issues this cycle = higher scores (recovery possible)
+        # Floor at 0.5 for normal critique, 0.3 only for severe issues (3+)
+        if len(cycle_fallacies) == 0:
+            self.reasoning_quality = min(1.0, self.reasoning_quality + 0.1)  # Recover
+        elif len(cycle_fallacies) <= 2:
+            self.reasoning_quality = max(0.5, 0.9 - len(cycle_fallacies) * 0.15)
+        else:
+            self.reasoning_quality = max(0.3, 0.9 - len(cycle_fallacies) * 0.15)
+
+        if len(cycle_evidence_gaps) == 0:
+            self.evidence_quality = min(1.0, self.evidence_quality + 0.1)  # Recover
+        elif len(cycle_evidence_gaps) <= 2:
+            self.evidence_quality = max(0.5, 0.9 - len(cycle_evidence_gaps) * 0.15)
+        else:
+            self.evidence_quality = max(0.3, 0.9 - len(cycle_evidence_gaps) * 0.15)
+
+    @property
+    def composite_confidence(self) -> float:
+        """
+        Combined confidence = weighted average of three dimensions.
+
+        Using average instead of product because:
+        - Product is too punitive (40% × 70% × 50% = 14%)
+        - Average reflects intuition (40%, 70%, 50% → ~55%)
+        - Each dimension contributes independently
+        """
+        return (self.reasoning_quality + self.evidence_quality + self.conclusion_confidence) / 3
+
+    @property
+    def summary(self) -> dict:
+        return {
+            "reasoning_quality": round(self.reasoning_quality, 2),
+            "evidence_quality": round(self.evidence_quality, 2),
+            "conclusion_confidence": round(self.conclusion_confidence, 2),
+            "composite": round(self.composite_confidence, 2),
+            "analysis_mode": self.analysis_mode,
+            "fallacies_count": len(self.fallacies_found),
+            "evidence_gaps_count": len(self.evidence_gaps),
+            "retrospective_insights_count": len(self.retrospective_insights),
+        }
+
+    def to_dict(self) -> dict:
+        return {
+            "reasoning_quality": self.reasoning_quality,
+            "evidence_quality": self.evidence_quality,
+            "conclusion_confidence": self.conclusion_confidence,
+            "analysis_mode": self.analysis_mode,
+            "fallacies_found": self.fallacies_found,
+            "evidence_gaps": self.evidence_gaps,
+            "retrospective_insights": self.retrospective_insights,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ConfidenceModel":
+        return cls(
+            reasoning_quality=d.get("reasoning_quality", 1.0),
+            evidence_quality=d.get("evidence_quality", 1.0),
+            conclusion_confidence=d.get("conclusion_confidence", 0.5),
+            analysis_mode=d.get("analysis_mode", "retrospective"),
+            fallacies_found=d.get("fallacies_found", []),
+            evidence_gaps=d.get("evidence_gaps", []),
+            retrospective_insights=d.get("retrospective_insights", []),
+        )
 
 
 @dataclass
@@ -123,10 +292,13 @@ class Scratchpad:
     title: str
     sections: dict[SectionType, Section] = field(default_factory=dict)
     confidence_history: list[float] = field(default_factory=list)
-    current_confidence: float = 0.5
+    current_confidence: float = 0.5  # Legacy - use confidence_model instead
     cycle_count: int = 0
     created: datetime = field(default_factory=datetime.now)
     last_updated: datetime = field(default_factory=datetime.now)
+
+    # Three-dimensional confidence model (replaces single confidence)
+    confidence_model: ConfidenceModel = field(default_factory=ConfidenceModel)
 
     # Key evidence - NEVER compressed (from working_memory.py)
     key_evidence: list[KeyEvidence] = field(default_factory=list)
@@ -253,9 +425,30 @@ class Scratchpad:
         }
 
     def update_confidence(self, new_confidence: float) -> None:
-        """Update confidence and track trajectory"""
+        """Update conclusion confidence and track trajectory"""
         self.confidence_history.append(self.current_confidence)
+        # Update both legacy field and new model
         self.current_confidence = max(0.0, min(1.0, new_confidence))
+        self.confidence_model.conclusion_confidence = self.current_confidence
+        self.last_updated = datetime.now()
+
+    def update_confidence_from_critique(self, critique_text: str, conclusion_confidence: float) -> None:
+        """
+        Update confidence model from critique output.
+
+        Separates:
+        - Reasoning quality (fallacies detected)
+        - Evidence quality (gaps/issues detected)
+        - Conclusion confidence (domain uncertainty)
+        """
+        self.confidence_history.append(self.current_confidence)
+
+        # Update model from critique markers
+        self.confidence_model.update_from_critique(critique_text)
+        self.confidence_model.conclusion_confidence = max(0.0, min(1.0, conclusion_confidence))
+
+        # Keep legacy current_confidence as composite for backwards compatibility
+        self.current_confidence = self.confidence_model.composite_confidence
         self.last_updated = datetime.now()
 
     def increment_cycle(self) -> None:
@@ -535,6 +728,7 @@ class Scratchpad:
             'current_branch_id': self.current_branch_id,
             'confidence_history': self.confidence_history,
             'current_confidence': self.current_confidence,
+            'confidence_model': self.confidence_model.to_dict(),
             'cycle_count': self.cycle_count,
             'created': self.created.isoformat(),
             'last_updated': self.last_updated.isoformat(),
@@ -571,4 +765,6 @@ class Scratchpad:
             for b in data.get('branches', [])
         ]
         scratchpad.current_branch_id = data.get('current_branch_id')
+        if 'confidence_model' in data:
+            scratchpad.confidence_model = ConfidenceModel.from_dict(data['confidence_model'])
         return scratchpad
