@@ -1,7 +1,7 @@
 # Dialectic: Multi-Pass Reasoning for Strategy
 
-**Version**: 2.1
-**Status**: Core hypotheses validated
+**Version**: 3.0
+**Status**: SDK architecture validated
 
 ---
 
@@ -11,31 +11,109 @@ Dialectic is **Claude Code for strategists**. The same agentic power that transf
 
 **Core Thesis**: Strategy isn't prediction—it's structured navigation through uncertainty. LLMs fail at strategy because they optimize for answers when strategists need frameworks for thinking.
 
-**The Breakthrough**: Multi-pass reasoning enables meta-level thinking that single-pass generation cannot access. Our experiments show 25% of decisions reached different conclusions with multi-pass. When tested head-to-head against multi-agent orchestration on HBR cases, multi-pass achieved **75% correct conclusions vs 50%**—finding frame-level insights that multi-agent missed entirely.
+**The Breakthrough**: Multi-pass reasoning enables meta-level thinking that single-pass generation cannot access. Our experiments show:
+- **25%** of decisions reached different conclusions with multi-pass
+- **80%** correct on HBR cases vs 70% single-pass
+- **9x** more flaws found with structured critique
+
+**V3 Evolution**: SDK-powered architecture with two distinct modes, session continuity, and harness_lite as invokable deep-thinking tool.
 
 ---
 
-## The Problem
+## Two Modes: Decision vs Ideas
 
-Current AI tools fail strategists in predictable ways:
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              DIALECTIC V3                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   DECISION MODE                              IDEAS MODE                     │
+│   (Bounded Analysis)                         (Extended Research)            │
+│   ─────────────────                          ──────────────────             │
+│                                                                             │
+│   User submits problem                       Multi-day thesis development   │
+│   + evidence (files, URLs, quotes)           + Session continuity           │
+│        ↓                                            ↓                       │
+│   ┌───────────────┐                         ┌───────────────┐              │
+│   │  /deep-think  │ ← harness_lite          │   SDK Agent   │              │
+│   │  (2-5 cycles) │   as tool               │   + Tools     │              │
+│   └───────┬───────┘                         └───────┬───────┘              │
+│           ↓                                         ↓                       │
+│   Recommendation                            ┌───────────────┐              │
+│   + Evidence Trail                          │  /deep-think  │ ← On demand  │
+│   (~10 min)                                 │  when needed  │              │
+│                                             └───────┬───────┘              │
+│                                                     ↓                       │
+│                                             Thesis Updates                  │
+│                                             Session Continuity              │
+│                                                                             │
+│   [Shift+Tab] ←────────── MODE TOGGLE ───────────→ [Shift+Tab]             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-| What AI Does | What Strategists Need |
-|--------------|----------------------|
-| Retrieves similar content | Navigates causal relationships |
-| Provides point estimates | Maps distributions of outcomes |
-| Answers questions | Challenges assumptions |
-| Single-pass response | Iterative refinement |
-| Forgets everything | Compounds learning over time |
+### Decision Mode
 
-## The Solution
+**Purpose**: Deep analysis on bounded problems
+**Duration**: ~10 minutes
+**Context Strategy**: Fresh per request, no session accumulation
 
-A **strategy copilot** that:
+| Aspect | Specification |
+|--------|---------------|
+| Trigger | User submits problem + evidence |
+| Engine | harness_lite directly |
+| Cycles | 2-5 based on complexity |
+| Tools | Pre-gathered evidence only |
+| Output | Synthesis with conviction markers |
+| Memory | Thesis saved, session discarded |
 
-1. **Thinks in passes** — Separates exploration from synthesis
-2. **Holds beliefs** — Manages theses that update with evidence
-3. **Preserves memory** — Never loses critical evidence
-4. **Challenges itself** — Structured self-critique with adversarial techniques
-5. **Knows when to stop** — Dynamic termination based on insight saturation
+### Ideas Mode
+
+**Purpose**: Extended research and thesis development
+**Duration**: Hours to days across sessions
+**Context Strategy**: SDK session resume with compaction
+
+| Aspect | Specification |
+|--------|---------------|
+| Trigger | User exploring or stress-testing |
+| Engine | SDK with tool access |
+| Tools | Web search, file search, user questions |
+| /deep-think | Available on demand |
+| Memory | Full session history with compaction |
+| Output | Evolving thesis documents |
+
+---
+
+## Token Budget: Context Management
+
+Context is valuable but finite. Three sources compete for the window:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              INJECTION CONTEXT AT SEGMENT START (~20K max)                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌─────────────────────────────┐                                           │
+│   │  THESIS DOCUMENT (50%)      │  ← Always included, full document         │
+│   │  ~10K tokens max            │    The living strategic artifact          │
+│   └─────────────────────────────┘                                           │
+│                                                                             │
+│   ┌─────────────────────────────┐                                           │
+│   │  LAST SESSION SUMMARY (30%) │  ← Structured compression of prior        │
+│   │  ~6K tokens max             │    segment (arc, decisions, tensions)     │
+│   └─────────────────────────────┘                                           │
+│                                                                             │
+│   ┌─────────────────────────────┐                                           │
+│   │  RELEVANT CLAIMS (20%)      │  ← Semantic retrieval from memory         │
+│   │  ~4K tokens max             │    (if continuing prior thread)           │
+│   └─────────────────────────────┘                                           │
+│                                                                             │
+│   WITHIN SEGMENT: Full SDK resume, no token management needed               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Design Principle**: Full resume within segments. Controlled injection between segments.
 
 ---
 
@@ -43,120 +121,112 @@ A **strategy copilot** that:
 
 ### Finding 1: Multi-Pass Enables Meta-Level Thinking
 
-**Evidence**: In our validation experiments:
-- Multi-pass reached **different conclusions** in 25% of cases
-- Example: VC portfolio problem—single-pass picked "safe" Company A, multi-pass picked contrarian Company C by elevating to "fund returner" portfolio-level reasoning
-
-**Mechanism**: Iteration enables higher-order thinking:
+**Evidence**: 25% of cases reached different conclusions. Multi-pass elevated to higher abstraction:
 
 | Problem | Single-Pass Level | Multi-Pass Level |
 |---------|------------------|------------------|
 | Portfolio | Company comparison | Fund portfolio construction |
-| Thesis update | Data interpretation | Thesis methodology critique |
-| Competitive | Tactical response | Industry evolution dynamics |
-| TAM | Data presentation | Board decision process design |
+| Netflix | DVD business optimization | Platform transition strategy |
+| Kodak | Camera development | Ecosystem ownership |
 
-**When to use**: High-stakes decisions with long feedback loops, contrarian positions that need justification, complex problems with second-order effects.
+### Finding 2: SDK Context Accumulation Matters
 
----
+**Evidence** (EXP-019): Comparing harness_lite vs SDK session resume:
 
-### Finding 2: Two-Pass Compression is 6x More Efficient
+| Metric | harness_lite | SDK Resume |
+|--------|--------------|------------|
+| Time | 334s | 3,885s |
+| Synthesis length | ~6k chars | ~14k chars |
+| Quality markers | 4/4 | 4/4 |
 
-**Evidence**:
-- Two-pass achieved **83% insight coverage at 300 tokens**
-- Verbose single-pass achieved 83% at 1800 tokens
-- That's **6x more efficient**
+**Key insight**: Richer output comes from context accumulation (priming + steering), not just model choice.
 
-**Mechanism**: Expansion → Compression separates concerns:
-- **Pass 1 (Expansion)**: Divergent exploration with semantic markers `[INSIGHT]`, `[EVIDENCE]`, `[RISK]`, `[COUNTER]`
-- **Pass 2 (Compression)**: Convergent synthesis preserving decision-relevant content
+### Finding 3: Two-Pass Compression is 6x Efficient
 
----
-
-### Finding 3: Accumulated Context Beats Partitioned
-
-**Evidence**: Testing three context strategies:
-- **Accumulated**: ~90% frame-level insights preserved
-- **Partitioned**: ~60% frame-level insights (lost cross-domain connections)
-- **Fresh each pass**: ~40% (no compounding)
-
-**Implication**: Context must compound within session. The magic happens when Pass 3 can reference insights from Pass 1.
-
----
+- Two-pass: **83% insight coverage at 300 tokens**
+- Verbose single-pass: 83% at 1800 tokens
 
 ### Finding 4: Structured Critique Finds 9x More Flaws
 
-**Evidence**: Comparing critique approaches:
-- Naive ("now critique this"): ~2 flaws found
-- Structured (6 techniques): ~18 flaws found
-- External adversary: ~15 flaws found
+| Condition | Flaws Found |
+|-----------|-------------|
+| Naive ("critique this") | ~2 |
+| **Structured** (6 techniques) | **~18** |
 
-**The Six Questioning Techniques**:
+---
+
+## The Multi-Pass Harness
+
+Both modes run on the same reasoning engine:
+
+### Semantic Markers
+
+| Marker | Purpose |
+|--------|---------|
+| `[INSIGHT]` | Non-obvious conclusions |
+| `[EVIDENCE]` | Supporting data points |
+| `[RISK]` | Potential failure modes |
+| `[COUNTER]` | Arguments against |
+| `[PATTERN]` | Recurring structures |
+
+### Six Questioning Techniques
+
 1. **Inversion**: What if the opposite were true?
 2. **Second-Order**: What are the downstream effects?
 3. **Falsification**: What evidence would disprove this?
 4. **Base Rates**: What do historical priors suggest?
 5. **Incentive Audit**: Who benefits from this being believed?
-6. **Adversary Simulation**: How would a smart skeptic attack this?
-
----
-
-## Architecture
-
-### Multi-Pass Harness
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        MULTI-PASS HARNESS                           │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│   Source Material                                                   │
-│        ↓                                                            │
-│   ┌─────────────────┐                                               │
-│   │    EXPANSION    │  ← Divergent exploration                      │
-│   │    (Pass 1)     │    Semantic markers: [INSIGHT] [EVIDENCE]     │
-│   └────────┬────────┘    [RISK] [COUNTER] [PATTERN]                 │
-│            ↓                                                        │
-│   ┌─────────────────┐                                               │
-│   │   COMPRESSION   │  ← Convergent synthesis                       │
-│   │    (Pass 2)     │    Preserve decision-relevant content         │
-│   └────────┬────────┘                                               │
-│            ↓                                                        │
-│   ┌─────────────────┐                                               │
-│   │    CRITIQUE     │  ← 6 questioning techniques                   │
-│   │    (Pass 3)     │    Adversarial self-examination               │
-│   └────────┬────────┘                                               │
-│            ↓                                                        │
-│   ┌─────────────────┐                                               │
-│   │   SYNTHESIS     │  ← Final thesis formation                     │
-│   │    (Pass 4)     │    Confidence calibration                     │
-│   └────────┬────────┘                                               │
-│            ↓                                                        │
-│   Thesis Document                                                   │
-│   • Core belief                                                     │
-│   • Supporting evidence                                             │
-│   • Triggers to monitor                                             │
-│   • Confidence score                                                │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+6. **Adversary Simulation**: How would a smart skeptic attack?
 
 ### Termination Criteria
 
-The harness stops when:
-- **Saturation**: Confidence delta < 0.05 for 2 consecutive cycles
-- **Threshold**: Confidence ≥ 0.75 with tensions resolved
-- **Max cycles**: Hard limit (typically 5)
+| Condition | Trigger |
+|-----------|---------|
+| Saturation | Confidence delta < 0.05 for 2 cycles |
+| Threshold | Confidence >= 0.75 with tensions resolved |
+| Max cycles | Hard limit (default: 5) |
+
+---
+
+## Session Segments
+
+**Architecture**: Session SEGMENTS with full resume within, rich extraction between.
+
+```
+SESSION SEGMENT 1 (turns 1-N)
+├── Turn 1: Fresh session, inject thesis + last_summary
+├── Turn 2-N: resume=session_id ← FULL SDK CONTEXT BENEFITS
+├── Track: turn_count, token_estimate
+└── Threshold hit → CHECKPOINT
+
+CHECKPOINT
+├── Synthesize → update thesis.md
+├── Export → sessions/session_001.md (archival)
+├── Compress → session_001_summary.md (for loading)
+├── Extract → memory/claims.json (searchable)
+└── End segment (next query starts fresh)
+
+SESSION SEGMENT 2 (turns N+1 to M)
+├── Turn 1: Fresh session, inject updated thesis + segment_1_summary
+├── Turn 2-M: resume=session_id ← FULL SDK BENEFITS AGAIN
+└── ...
+```
+
+**Checkpoint Triggers**:
+- Turn count >= 20
+- Token estimate >= 80K
+- User explicit `/checkpoint`
+- Session end
 
 ---
 
 ## Who This Is For
 
-| Persona | Pain Points | Value Proposition |
-|---------|-------------|-------------------|
-| **Investment Analyst** | Thesis development is ad-hoc, patterns depend on memory | Persistent beliefs, evidence tracking |
-| **Strategy Consultant** | Each engagement starts from scratch | Pattern library, session persistence |
-| **Corporate Strategist** | Board materials are painful, no systematic learning | Deliverable generation, outcome tracking |
+| Persona | Pain Points | Value |
+|---------|-------------|-------|
+| **Investment Analyst** | Ad-hoc thesis development | Persistent beliefs, evidence tracking |
+| **Strategy Consultant** | Starting from scratch each engagement | Pattern library, session persistence |
+| **Corporate Strategist** | Board materials, no systematic learning | Deliverable generation, outcome tracking |
 | **Founder/Operator** | Can't afford dedicated strategy staff | Affordable structured thinking |
 
 ---
@@ -166,5 +236,7 @@ The harness stops when:
 **Copilot, not Agent.** The system augments human judgment rather than replacing it. Strategic decisions operate in domains of irreducible uncertainty—the model cannot absorb accountability for outcomes it cannot fully predict.
 
 **Prioritize over Predict.** In low-feedback, high-variance markets, the right question isn't "what will happen?" but "what should we do first given constraints?"
+
+**Dialogue as First Principle.** User messages are sacred. They represent human thinking and should never be compressed away.
 
 **The Obvious Decisions Don't Need AI.** The non-obvious ones—where the frame itself might be wrong—that's where this architecture earns its keep.
