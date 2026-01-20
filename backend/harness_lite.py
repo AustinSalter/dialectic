@@ -43,6 +43,7 @@ class PassResult:
     duration_ms: int
     tokens_used: int
     insights_found: int = 0  # New insights extracted (for diminishing returns)
+    major_flaws_found: int = 0  # COUNTER + RISK markers (for re-expansion trigger)
 
 
 @dataclass
@@ -80,12 +81,14 @@ class MultiPassHarnessLite:
         api_key: str | None = None,
         max_cycles: int = 5,
         on_progress: Callable[[str, Any], None] | None = None,
+        analysis_mode: str = "retrospective",  # "forward" or "retrospective"
     ):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY required")
 
         self.max_cycles = max_cycles
+        self.analysis_mode = analysis_mode  # forward = predicting, retrospective = post-mortem
         # Default to async no-op if no progress handler provided
         async def noop(*_): pass
         self.on_progress = on_progress or noop
@@ -99,29 +102,44 @@ class MultiPassHarnessLite:
         system: str,
         user: str,
         max_tokens: int = 4096,
+        retries: int = 3,
     ) -> tuple[str, int]:
-        """Make API call to Claude"""
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                self.API_URL,
-                headers={
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": self.MODEL,
-                    "max_tokens": max_tokens,
-                    "system": system,
-                    "messages": [{"role": "user", "content": user}],
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+        """Make API call to Claude with retry logic"""
+        import asyncio
 
-        content = data["content"][0]["text"]
-        tokens = data["usage"]["output_tokens"]
-        return content, tokens
+        last_error = None
+        for attempt in range(retries):
+            try:
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    response = await client.post(
+                        self.API_URL,
+                        headers={
+                            "x-api-key": self.api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json={
+                            "model": self.MODEL,
+                            "max_tokens": max_tokens,
+                            "system": system,
+                            "messages": [{"role": "user", "content": user}],
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                content = data["content"][0]["text"]
+                tokens = data["usage"]["output_tokens"]
+                return content, tokens
+
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                last_error = e
+                if attempt < retries - 1:
+                    wait_time = (2 ** attempt) * 2  # 2, 4, 8 seconds
+                    print(f"  [RETRY] Attempt {attempt + 1} failed, waiting {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+
+        raise last_error
 
     async def run(
         self,
@@ -133,8 +151,9 @@ class MultiPassHarnessLite:
         start_time = datetime.now()
         session_id = f"harness-{int(start_time.timestamp())}"
 
-        # Initialize scratchpad
+        # Initialize scratchpad with analysis mode
         self.scratchpad = Scratchpad(session_id=session_id, title=title)
+        self.scratchpad.confidence_model.analysis_mode = self.analysis_mode
         self.passes = []
 
         # Add claims
@@ -187,10 +206,55 @@ class MultiPassHarnessLite:
             self.passes.append(critique)
             total_tokens += critique.tokens_used
             cycle_insights += critique.insights_found
-            await self.on_progress('critique_complete', {'cycle': cycle, 'confidence': critique.confidence, 'tokens': critique.tokens_used})
+            await self.on_progress('critique_complete', {
+                'cycle': cycle,
+                'confidence': critique.confidence,
+                'confidence_model': self.scratchpad.confidence_model.summary,
+                'tokens': critique.tokens_used,
+                'major_flaws': critique.major_flaws_found,
+            })
+
+            # RE-EXPANSION: If critique found major flaws, run targeted re-expansion
+            if critique.major_flaws_found >= 3 and cycle < self.max_cycles:
+                await self.on_progress('re_expansion_triggered', {'cycle': cycle, 'flaws': critique.major_flaws_found})
+
+                # Targeted re-expansion on identified flaws
+                re_expansion = await self._run_targeted_expansion(cycle, critique.content)
+                self.passes.append(re_expansion)
+                total_tokens += re_expansion.tokens_used
+                cycle_insights += re_expansion.insights_found
+                await self.on_progress('re_expansion_complete', {'cycle': cycle, 'insights': re_expansion.insights_found})
+
+                # Re-compress after targeted expansion
+                re_compression = await self._run_compression(cycle)
+                self.passes.append(re_compression)
+                total_tokens += re_compression.tokens_used
+                cycle_insights += re_compression.insights_found
+                # Don't re-critique immediately (avoid infinite loop)
 
             # Record insight count for this cycle (for diminishing returns detection)
             self.scratchpad.record_cycle_insights(cycle_insights)
+
+            # BRANCHING: Check if conditions warrant creating branches
+            if self.scratchpad.should_branch():
+                branch_proposals = self.scratchpad.extract_branch_proposals()
+                await self.on_progress('branching_triggered', {
+                    'cycle': cycle,
+                    'confidence': self.scratchpad.current_confidence,
+                    'proposals': len(branch_proposals),
+                })
+
+                # Create branches for each proposal
+                for proposal in branch_proposals[:self.scratchpad.MAX_BRANCHES - len(self.scratchpad.get_active_branches())]:
+                    branch = self.scratchpad.create_branch(proposal)
+                    await self.on_progress('branch_created', {'branch_id': branch.id, 'thesis': proposal[:80]})
+
+                # Clear processed proposals
+                self.scratchpad.clear_branch_proposals()
+
+                # Run one cycle on each active branch
+                branch_results = await self._run_branch_cycles(cycle)
+                total_tokens += sum(r['tokens'] for r in branch_results)
 
             # Check termination (now uses combined strategy from EXP-010)
             termination_reason = self.scratchpad.check_termination(self.max_cycles)
@@ -198,7 +262,7 @@ class MultiPassHarnessLite:
                 await self.on_progress('terminating', {'reason': termination_reason, 'cycle_insights': cycle_insights})
                 break
 
-        # Final synthesis
+        # Final synthesis (with branch merging if branches exist)
         synthesis = await self._run_synthesis()
         self.passes.append(synthesis)
         total_tokens += synthesis.tokens_used
@@ -313,44 +377,194 @@ Every sentence should earn its place.
             insights_found=insights_found,
         )
 
-    async def _run_critique(self, cycle: int) -> PassResult:
-        """Critique pass with 6 questioning techniques"""
+    async def _run_targeted_expansion(self, cycle: int, critique_content: str) -> PassResult:
+        """
+        Targeted re-expansion triggered by critique findings.
+
+        When critique identifies >= 3 major flaws (COUNTER + RISK), this method
+        runs a focused expansion specifically addressing those issues.
+        """
         start = datetime.now()
 
-        system = f"""You are an ADVERSARIAL CRITIC for cycle {cycle}.
+        # Extract the specific flaws from critique for targeted expansion
+        counters = re.findall(r'\[COUNTER\]([^\[]*?)(?=\[|$)', critique_content, re.IGNORECASE | re.DOTALL)
+        risks = re.findall(r'\[RISK\]([^\[]*?)(?=\[|$)', critique_content, re.IGNORECASE | re.DOTALL)
+
+        flaws_summary = ""
+        if counters:
+            flaws_summary += "**Counterarguments to address:**\n"
+            for i, c in enumerate(counters[:3], 1):  # Limit to 3
+                flaws_summary += f"{i}. {c.strip()}\n"
+        if risks:
+            flaws_summary += "\n**Risks to investigate:**\n"
+            for i, r in enumerate(risks[:3], 1):  # Limit to 3
+                flaws_summary += f"{i}. {r.strip()}\n"
+
+        system = f"""You are in TARGETED RE-EXPANSION mode for cycle {cycle}.
+
+The adversarial critique identified significant flaws that need deeper investigation.
 
 ## Current Scratchpad
 {self.scratchpad.render()}
 
-{SIX_QUESTIONING_TECHNIQUES}
+## Flaws to Address
+{flaws_summary}
 
 ## Your Task
-Apply ALL six techniques to stress-test the analysis:
+For EACH identified flaw:
+1. Explore whether it invalidates or merely qualifies the thesis
+2. Search for evidence that supports OR refutes the counterargument
+3. Consider if this reveals a more nuanced position
 
-For each technique, mark your findings:
-- [COUNTER] for counterarguments
-- [RISK] for identified risks
-- [QUESTION] for unresolved questions
+Mark your findings:
+- [INSIGHT] for new understanding
+- [EVIDENCE] for supporting/refuting data
+- [COUNTER] if you find additional challenges
+- [PATTERN] for generalizable lessons
 
-After your critique, provide a confidence update:
-CONFIDENCE: 0.XX (brief reasoning)
-
-If you found significant flaws, confidence should DECREASE.
-Non-monotonic trajectories indicate genuine exploration.
+Do NOT dismiss the critique. Either strengthen the thesis against it OR adjust the thesis to accommodate it.
 """
 
-        user = f"Cycle {cycle}: Apply all six questioning techniques. Be ruthless but fair."
+        user = f"Cycle {cycle}: Address the critique's major flaws through targeted expansion."
 
         content, tokens = await self._call_claude(system, user, max_tokens=3000)
 
         # Extract marked content (returns new insight count)
         insights_found = self.scratchpad.extract_and_merge(content)
 
-        # Extract confidence update
-        confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', content)
-        if confidence_match:
-            new_confidence = float(confidence_match.group(1))
-            self.scratchpad.update_confidence(new_confidence)
+        duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+        return PassResult(
+            pass_type='targeted_expansion',
+            content=content,
+            confidence=self.scratchpad.current_confidence,
+            duration_ms=duration_ms,
+            tokens_used=tokens,
+            insights_found=insights_found,
+        )
+
+    async def _run_critique(self, cycle: int) -> PassResult:
+        """Critique pass with fallacy detection and evidence quality assessment"""
+        start = datetime.now()
+
+        # Mode-specific guidance
+        mode = self.analysis_mode
+        if mode == "retrospective":
+            mode_guidance = """
+## Analysis Mode: RETROSPECTIVE (Post-Mortem)
+This is a retrospective case study where the outcome is known. The goal is to understand
+WHY things happened, not to predict what WILL happen.
+
+In retrospective mode:
+- [HINDSIGHT] and [SURVIVORSHIP] are EXPECTED and VALUABLE - mark them to track insights
+  derived from knowing the outcome, but do NOT penalize reasoning quality for using them
+- These become "retrospective insights" that inform the causal analysis
+- Focus fallacy detection on: confirmation bias, false dichotomy, circular reasoning
+"""
+        else:
+            mode_guidance = """
+## Analysis Mode: FORWARD (Predictive)
+This is forward-looking analysis where the outcome is uncertain. The goal is to predict
+what WILL happen based on current information.
+
+In forward mode:
+- [HINDSIGHT] is a serious fallacy - using future information to "predict"
+- [SURVIVORSHIP] is a serious fallacy - only looking at winners
+- Both should reduce reasoning quality score significantly
+"""
+
+        system = f"""You are a DIALECTICAL CRITIC for cycle {cycle}. Your job is SUBLATION -
+to assess whether we've found the RIGHT insight at the RIGHT level of abstraction,
+not just whether our evidence is technically sound.
+
+## Current Scratchpad
+{self.scratchpad.render()}
+
+{mode_guidance}
+
+## Your Task: Dialectical Critique (Sublation)
+
+### Part 1: ABSTRACTION CHECK
+Is the analysis at the right level? Mark issues:
+- [TOO_GRANULAR] Lost in operational details when strategic insight needed
+- [TOO_ABSTRACT] Missing concrete mechanisms that explain WHY
+- [RIGHT_LEVEL] Analysis is at appropriate strategic abstraction
+
+Ask: "Would a professor circle this as the key insight, or write 'so what?' in the margin?"
+
+### Part 2: ESSENTIAL TENSION
+Have we identified the core dilemma/trade-off? Mark:
+- [TENSION_FOUND] Clear articulation of the fundamental trade-off or dilemma
+- [TENSION_MISSING] Analysis describes WHAT happened but not the underlying tension
+- [TENSION_WRONG] Identified a tension but it's not the essential one
+
+Common strategic tensions to look for:
+- Innovator's dilemma (profitable present vs uncertain future)
+- Exploitation vs exploration
+- Scale vs agility
+- Short-term vs long-term optimization
+
+### Part 3: FRAMEWORK FIT
+Does this map to established strategic concepts?
+- [FRAMEWORK] Name the applicable framework (Christensen, Porter, BCG, etc.)
+- [NOVEL] Insight doesn't fit existing frameworks - potentially original contribution
+- [MISAPPLIED] Framework invoked but doesn't actually fit the situation
+
+### Part 4: TRANSFERABLE INSIGHT
+Is there a lesson that applies beyond this specific case?
+- [TRANSFERABLE] Clear principle that generalizes
+- [CASE_SPECIFIC] Analysis is too tied to particulars of this situation
+- [UNIVERSAL] Insight is so general it's not actionable
+
+### Part 5: REFRAME PROPOSALS
+If the current thesis is at wrong level or missing the essential tension:
+- [REFRAME] Propose a better formulation of the core insight
+- [ELEVATE] Suggest how to move from operational to strategic level
+- [BRANCH] Fundamentally different interpretation worth exploring
+
+## Confidence Update
+REASONING_QUALITY: 0.XX (1.0 = right abstraction level, essential tension found)
+EVIDENCE_QUALITY: 0.XX (1.0 = sufficient support for the insight level claimed)
+CONCLUSION_CONFIDENCE: 0.XX (confidence this IS the key insight)
+
+{"For RETROSPECTIVE: The goal is to extract the strategic lesson, not to prove causation beyond doubt. Hindsight is the tool, not the enemy." if mode == "retrospective" else "For FORWARD: Focus on whether we're asking the right strategic question."}
+"""
+
+        user = f"Cycle {cycle}: Assess reasoning quality, evidence quality, and substantive issues separately."
+
+        content, tokens = await self._call_claude(system, user, max_tokens=3000)
+
+        # Extract marked content (returns new insight count)
+        insights_found = self.scratchpad.extract_and_merge(content)
+
+        # Count dialectical issues that warrant re-expansion
+        # These indicate we're at wrong abstraction level or missing the insight
+        too_granular = len(re.findall(r'\[TOO_GRANULAR\]', content, re.IGNORECASE))
+        tension_missing = len(re.findall(r'\[TENSION_MISSING\]', content, re.IGNORECASE))
+        tension_wrong = len(re.findall(r'\[TENSION_WRONG\]', content, re.IGNORECASE))
+        reframe_proposed = len(re.findall(r'\[REFRAME\]', content, re.IGNORECASE))
+        elevate_proposed = len(re.findall(r'\[ELEVATE\]', content, re.IGNORECASE))
+
+        # Re-expand if we need to change abstraction level or find the real tension
+        # These are "sublation triggers" - the current thesis needs transcending
+        major_flaws_found = (too_granular * 2) + (tension_missing * 2) + tension_wrong + reframe_proposed + elevate_proposed
+
+        # Extract three-part confidence update
+        reasoning_match = re.search(r'REASONING_QUALITY:\s*(0\.\d+)', content)
+        evidence_match = re.search(r'EVIDENCE_QUALITY:\s*(0\.\d+)', content)
+        conclusion_match = re.search(r'CONCLUSION_CONFIDENCE:\s*(0\.\d+)', content)
+
+        if reasoning_match and evidence_match and conclusion_match:
+            # Use new three-part confidence model
+            self.scratchpad.confidence_model.reasoning_quality = float(reasoning_match.group(1))
+            self.scratchpad.confidence_model.evidence_quality = float(evidence_match.group(1))
+            conclusion_conf = float(conclusion_match.group(1))
+            self.scratchpad.update_confidence_from_critique(content, conclusion_conf)
+        else:
+            # Fallback to old single confidence
+            confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', content)
+            if confidence_match:
+                new_confidence = float(confidence_match.group(1))
+                self.scratchpad.update_confidence(new_confidence)
 
         duration_ms = int((datetime.now() - start).total_seconds() * 1000)
         return PassResult(
@@ -360,11 +574,156 @@ Non-monotonic trajectories indicate genuine exploration.
             duration_ms=duration_ms,
             tokens_used=tokens,
             insights_found=insights_found,
+            major_flaws_found=major_flaws_found,
+        )
+
+    async def _run_branch_cycles(self, parent_cycle: int) -> list[dict]:
+        """
+        Run one expansion-compression cycle on each active branch.
+
+        Each branch gets its own focused analysis cycle to develop its thesis.
+        Results are stored in the scratchpad for synthesis merging.
+        """
+        results = []
+        active_branches = self.scratchpad.get_active_branches()
+
+        for branch in active_branches:
+            self.scratchpad.current_branch_id = branch.id
+            await self.on_progress('branch_cycle_start', {'branch_id': branch.id, 'thesis': branch.thesis[:50]})
+
+            # Run focused expansion on this branch's thesis
+            branch_expansion = await self._run_branch_expansion(parent_cycle, branch)
+            self.passes.append(branch_expansion)
+
+            # Compress
+            branch_compression = await self._run_compression(parent_cycle)
+            self.passes.append(branch_compression)
+
+            # Quick critique to update branch confidence
+            branch_critique = await self._run_branch_critique(parent_cycle, branch)
+            self.passes.append(branch_critique)
+
+            # Update branch confidence from critique
+            confidence_match = re.search(r'CONFIDENCE:\s*(0\.\d+)', branch_critique.content)
+            if confidence_match:
+                branch.confidence = float(confidence_match.group(1))
+
+            results.append({
+                'branch_id': branch.id,
+                'confidence': branch.confidence,
+                'tokens': branch_expansion.tokens_used + branch_compression.tokens_used + branch_critique.tokens_used,
+            })
+
+            await self.on_progress('branch_cycle_complete', {
+                'branch_id': branch.id,
+                'confidence': branch.confidence,
+            })
+
+        # Reset to no specific branch
+        self.scratchpad.current_branch_id = None
+        return results
+
+    async def _run_branch_expansion(self, cycle: int, branch) -> PassResult:
+        """Run expansion focused on a specific branch thesis."""
+        start = datetime.now()
+
+        system = f"""You are in BRANCH EXPANSION mode for cycle {cycle}.
+
+## Branch Context
+**Branch ID**: {branch.id}
+**Branch Thesis**: {branch.thesis}
+**Parent Branch**: {branch.parent_id or 'root'}
+
+## Current Scratchpad
+{self.scratchpad.render()}
+
+## Your Task
+Explore this specific branch thesis. Assume it is TRUE and develop it:
+- What evidence supports this branch over alternatives?
+- What are the implications if this branch is correct?
+- What conditions must hold for this thesis to be valid?
+
+Mark findings with [INSIGHT], [EVIDENCE], [RISK], [COUNTER], [PATTERN].
+Focus on what differentiates this branch from alternatives.
+"""
+
+        user = f"Expand on branch '{branch.id}': {branch.thesis[:100]}"
+
+        content, tokens = await self._call_claude(system, user, max_tokens=2500)
+        insights_found = self.scratchpad.extract_and_merge(content)
+
+        duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+        return PassResult(
+            pass_type='branch_expansion',
+            content=content,
+            confidence=branch.confidence,
+            duration_ms=duration_ms,
+            tokens_used=tokens,
+            insights_found=insights_found,
+        )
+
+    async def _run_branch_critique(self, cycle: int, branch) -> PassResult:
+        """Run focused critique on a specific branch."""
+        start = datetime.now()
+
+        system = f"""You are critiquing a specific BRANCH thesis for cycle {cycle}.
+
+## Branch Context
+**Branch ID**: {branch.id}
+**Branch Thesis**: {branch.thesis}
+
+## Current Scratchpad
+{self.scratchpad.render()}
+
+## Your Task
+Evaluate this specific branch:
+1. What is the strongest argument AGAINST this branch thesis?
+2. What evidence would DISPROVE this branch?
+3. How does this branch compare to alternatives?
+
+Provide your assessment:
+CONFIDENCE: 0.XX (how likely is this branch thesis correct?)
+
+Be calibrated - don't inflate or deflate confidence artificially.
+"""
+
+        user = f"Critique branch '{branch.id}': {branch.thesis[:100]}"
+
+        content, tokens = await self._call_claude(system, user, max_tokens=1500)
+        insights_found = self.scratchpad.extract_and_merge(content)
+
+        duration_ms = int((datetime.now() - start).total_seconds() * 1000)
+        return PassResult(
+            pass_type='branch_critique',
+            content=content,
+            confidence=branch.confidence,
+            duration_ms=duration_ms,
+            tokens_used=tokens,
+            insights_found=insights_found,
         )
 
     async def _run_synthesis(self) -> PassResult:
-        """Final synthesis pass"""
+        """Final synthesis pass with optional branch merging"""
         start = datetime.now()
+
+        # Check if we have active branches to merge
+        active_branches = self.scratchpad.get_active_branches()
+        branch_context = ""
+
+        if active_branches:
+            branch_context = "\n## Active Branches to Merge\n"
+            for b in sorted(active_branches, key=lambda x: x.confidence, reverse=True):
+                branch_context += f"- **{b.id}** ({b.confidence*100:.0f}%): {b.thesis}\n"
+
+            branch_context += """
+## Branch Merge Strategy
+Choose ONE of these approaches:
+1. **SELECT**: If one branch clearly dominates (>20% confidence gap), select it as the thesis
+2. **CONDITIONAL**: If branches are close, synthesize as "Under condition X, thesis A; under condition Y, thesis B"
+3. **RECONCILE**: If branches can be reconciled, find the synthesis that accommodates both
+
+State your merge approach in the output.
+"""
 
         system = f"""You are in FINAL SYNTHESIS mode. Crystallize the analysis into a thesis.
 
@@ -376,7 +735,7 @@ Non-monotonic trajectories indicate genuine exploration.
 
 ## Trajectory Analysis
 {json.dumps(self.scratchpad.analyze_trajectory(), indent=2)}
-
+{branch_context}
 ## Your Task
 Form the final thesis with:
 
@@ -385,13 +744,23 @@ Form the final thesis with:
 3. **Evidence For**: Specific supporting points with @CLAIM references
 4. **Evidence Against**: Acknowledged limitations
 5. **Triggers**: Falsifiable conditions - "what would change this"
+{f'6. **Branch Resolution**: How branches were merged (if applicable)' if active_branches else ''}
 
 Output as structured markdown.
 """
 
         user = "Synthesize the final thesis from all accumulated analysis."
 
-        content, tokens = await self._call_claude(system, user, max_tokens=2000)
+        content, tokens = await self._call_claude(system, user, max_tokens=2500)
+
+        # If we had branches, update final confidence based on winning branch
+        winning_branch = self.scratchpad.get_winning_branch()
+        if winning_branch:
+            # Use winning branch confidence as a factor
+            self.scratchpad.current_confidence = (
+                self.scratchpad.current_confidence * 0.5 +
+                winning_branch.confidence * 0.5
+            )
 
         duration_ms = int((datetime.now() - start).total_seconds() * 1000)
         return PassResult(

@@ -8,12 +8,14 @@ This document summarizes the validation experiments that informed Dialectic's ar
 
 | Finding | Experiment | Result |
 |---------|------------|--------|
-| Multi-pass enables meta-level thinking | EXP-004, EXP-005 | 25% different conclusions, 75% vs 50% on HBR cases |
+| Multi-pass enables meta-level thinking | EXP-004, EXP-005 | 25% different conclusions, 80% vs 70% on HBR cases |
 | Two-pass compression is 6x efficient | EXP-003 | 83% insight coverage at 300 tokens |
 | Accumulated context beats partitioned | EXP-005 | ~90% vs ~60% frame-level insight preservation |
 | Structured critique finds 9x more flaws | EXP-007 | 18 vs 2 flaws found |
 | Semantic markers extract 3x insights | EXP-008 | Per-token insight density |
 | Dynamic termination preserves quality | EXP-010 | 50%+ early termination without quality loss |
+| SDK context accumulation adds richness | EXP-019 | 14k vs 6k char synthesis, same quality markers |
+| Model choice < context accumulation | EXP-019b | Opus-only similar to mixed routing |
 
 ---
 
@@ -159,3 +161,62 @@ These findings directly shaped Dialectic's design:
 3. **Structured critique** (EXP-007): Six questioning techniques built into critique pass
 4. **Anchored compression** (EXP-009): Scratchpad preserves key evidence across cycles
 5. **Dynamic termination** (EXP-010): Combined strategy for efficient stopping
+6. **SDK session segments** (EXP-019): Full resume within segments, checkpoint between
+
+---
+
+## EXP-019: SDK vs harness_lite
+
+**Hypothesis**: SDK session resume produces qualitatively different output than harness_lite's direct API calls.
+
+**Method**: Same strategic problem (Yahoo-Google HBR case) run through:
+- **harness_lite**: Direct Anthropic API, multi-pass within single context
+- **SDK resume**: Claude Agent SDK with session continuity across turns
+
+**Results**:
+
+| Metric | harness_lite | SDK Resume |
+|--------|--------------|------------|
+| Time | 334s | 3,885s (11.6x slower) |
+| Cost | $0.74 | $0.64 |
+| Quality markers | 4/4 | 4/4 |
+| Synthesis length | ~6k chars | ~14k chars |
+
+**Key Findings**:
+- SDK's accumulated context produces **richer synthesis** (14k vs 6k chars)
+- Quality markers identical—both find the frame-level insights
+- Time difference is significant: 11.6x slower
+- Cost is comparable
+
+**Implication**: For Decision Mode (bounded, fast), use harness_lite directly. For Ideas Mode (extended research), SDK session resume provides richer context accumulation.
+
+---
+
+## EXP-019b: Model Choice vs Context Accumulation
+
+**Hypothesis**: Is SDK's richer output from model quality or context accumulation?
+
+**Method**: Run harness_lite with Opus for ALL passes (not mixed Sonnet/Opus routing).
+
+**Results**:
+
+| Metric | Mixed Routing | Opus-Only |
+|--------|---------------|-----------|
+| Time | 334s | 375s |
+| Cost | $0.74 | $0.96 |
+| Synthesis | ~6k chars | ~7k chars |
+
+**Conclusion**: Model choice alone doesn't explain SDK's 14k synthesis. The difference comes from **context accumulation** (priming + steering) across session turns, not just model capability.
+
+---
+
+## Implications for V3 Architecture
+
+EXP-019 findings shaped the dual-mode architecture:
+
+| Mode | Engine | Why |
+|------|--------|-----|
+| **Decision** | harness_lite | Fast (5 min), sufficient quality for bounded problems |
+| **Ideas** | SDK + /deep-think | Richer context accumulation for extended research |
+
+The Shift+Tab toggle lets users choose based on their current need.
