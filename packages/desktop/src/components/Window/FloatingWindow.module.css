@@ -1,0 +1,244 @@
+/* FloatingWindow.module.css - V2Upgrade Design */
+
+.floatingWindow {
+  position: absolute;
+  background: var(--bg-window);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-window);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  min-width: 400px;
+  min-height: 300px;
+  z-index: var(--z-window-base);
+}
+
+.floatingWindow.dragging {
+  transition: none;
+  user-select: none;
+}
+
+.floatingWindow.fullscreen {
+  position: fixed;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 0;
+  border: none;
+  transform: none !important;
+  background: var(--bg-window-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  z-index: 1000 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TITLEBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(31, 30, 27, 0.8);
+  border-bottom: 1px solid var(--border-default);
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.titlebar:active {
+  cursor: grabbing;
+}
+
+.fullscreen .titlebar {
+  cursor: default;
+  background: var(--bg-window-solid);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WINDOW CONTROLS (Traffic Lights)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.controls {
+  display: flex;
+  gap: 6px;
+}
+
+.control {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.control:hover {
+  opacity: 0.8;
+}
+
+.control.close {
+  background: var(--control-close);
+}
+
+.control.minimize {
+  background: var(--control-minimize);
+}
+
+.control.maximize {
+  background: var(--control-maximize);
+}
+
+.control.maximize.inactive,
+.fullscreen .control.maximize {
+  background: var(--control-inactive);
+}
+
+.fullscreen .control.minimize {
+  background: var(--control-inactive);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TITLE & META
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.title {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.status.statusTensions {
+  color: var(--color-tension);
+}
+
+.status.statusActive {
+  color: var(--color-assistant);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NOTES WINDOW VARIANT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.notesWindow {
+  min-width: 280px;
+  min-height: 200px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESIZE HANDLES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.resizeHandle {
+  position: absolute;
+  z-index: 10;
+}
+
+/* Edge handles - thin strips along edges */
+.resizeN {
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.resizeS {
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.resizeE {
+  top: 8px;
+  right: 0;
+  bottom: 8px;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.resizeW {
+  top: 8px;
+  left: 0;
+  bottom: 8px;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+/* Corner handles - small squares at corners */
+.resizeNE {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nesw-resize;
+}
+
+.resizeNW {
+  top: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+}
+
+.resizeSE {
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+}
+
+.resizeSW {
+  bottom: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nesw-resize;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+  .floatingWindow {
+    top: var(--header-height) !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    border-radius: 0;
+    transform: none !important;
+  }
+
+  .resizeHandle {
+    display: none;
+  }
+}

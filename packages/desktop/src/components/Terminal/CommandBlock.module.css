@@ -1,0 +1,124 @@
+/* CommandBlock.module.css - V2Upgrade Design */
+
+.container {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: rgba(38, 36, 33, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-md);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: rgba(31, 30, 27, 0.8);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.header:hover {
+  background: rgba(74, 71, 67, 0.5);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.status {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.status.running {
+  background: var(--accent-rust-light);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.status.done {
+  background: var(--accent-forest-light);
+}
+
+.status.error {
+  background: var(--accent-rust);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.command {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.prompt {
+  color: var(--accent-rust-light);
+}
+
+.timestamp {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.output {
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+.output p {
+  margin: 0 0 var(--space-2) 0;
+}
+
+.output p:last-child {
+  margin-bottom: 0;
+}
+
+.output code {
+  background: var(--bg-code);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+}
+
+.output pre {
+  background: var(--bg-code);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  margin: var(--space-2) 0;
+}
+
+.output pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.output ul, .output ol {
+  margin: var(--space-2) 0;
+  padding-left: var(--space-4);
+}
+
+.output li {
+  margin-bottom: var(--space-1);
+}
+
+.output strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}

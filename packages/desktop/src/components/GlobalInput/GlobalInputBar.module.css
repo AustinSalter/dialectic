@@ -1,0 +1,139 @@
+/* GlobalInputBar.module.css - Persistent bottom input */
+
+.globalInputBar {
+  position: fixed;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 92%;
+  max-width: 640px;
+  z-index: 90;
+  padding: 0;
+  pointer-events: auto;
+}
+
+.inputContainer {
+  background: rgba(15, 15, 15, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  padding: 18px 22px;
+}
+
+/* Target indicator (shows active session) */
+.targetIndicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 8px 0;
+}
+
+.targetDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(107, 152, 184, 0.8);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.targetLabel {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Input box */
+.inputBox {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+.inputBox:focus-within {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Mode indicator (green dot) */
+.modeIndicator {
+  width: 8px;
+  height: 8px;
+  background: #50a060; /* green = ready */
+  border-radius: 50%;
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+.inputField {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  min-height: 24px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.inputField::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.inputField:disabled {
+  opacity: 0.5;
+}
+
+/* Send button - glass effect */
+.sendButton {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.5);
+  transition: background 150ms ease, color 150ms ease;
+  flex-shrink: 0;
+}
+
+.sendButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.sendButton:disabled {
+  background: rgba(255, 255, 255, 0.04);
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* Rail adjustment */
+:global(.app[data-left-rail="open"]) .globalInputBar {
+  left: var(--rail-width);
+}
+
+:global(.app[data-right-rail="open"]) .globalInputBar {
+  right: var(--rail-width);
+}

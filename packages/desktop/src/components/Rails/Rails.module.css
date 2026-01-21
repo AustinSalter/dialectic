@@ -1,0 +1,355 @@
+/* Rails.module.css - Floating glass panels that snap to edges */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RAIL BASE - Floating Glass Window (default state)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.rail {
+  position: fixed;
+  width: 260px;
+  height: 420px;
+  background: rgba(38, 36, 33, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border-radius: 8px;
+  z-index: var(--z-rails);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease, transform 200ms ease,
+              top 200ms ease, left 200ms ease, right 200ms ease,
+              bottom 200ms ease, height 200ms ease, border-radius 200ms ease;
+}
+
+/* Floating positions (default) - will be overridden by inline styles */
+.leftRail {
+  top: 120px;
+  left: 80px;
+}
+
+.rightRail {
+  top: 120px;
+  right: 80px;
+}
+
+.rail.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Snapped state - docked to edge */
+.rail.snapped {
+  top: 60px;
+  bottom: 0;
+  height: auto;
+  border-radius: 0;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.leftRail.snapped {
+  left: 0;
+  border-left: none;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.rightRail.snapped {
+  right: 0;
+  border-right: none;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Dragging state */
+.rail.dragging {
+  transition: none;
+  cursor: grabbing;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+}
+
+/* Snap indicator glow when near edge */
+.rail.nearEdge {
+  box-shadow: 0 0 20px rgba(196, 131, 106, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DRAWER DOCK ZONE - Visual indicator for snap target
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.drawerZone {
+  position: fixed;
+  top: 60px;
+  bottom: 0;
+  width: 8px;
+  background: transparent;
+  z-index: calc(var(--z-rails) - 1);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease, width 200ms ease, background 200ms ease;
+}
+
+.drawerZone.left {
+  left: 0;
+  border-right: 2px solid transparent;
+}
+
+.drawerZone.right {
+  right: 0;
+  border-left: 2px solid transparent;
+}
+
+.drawerZone.visible {
+  opacity: 1;
+  width: 12px;
+  background: linear-gradient(
+    to right,
+    rgba(196, 131, 106, 0.15),
+    transparent
+  );
+  border-right-color: rgba(196, 131, 106, 0.3);
+}
+
+.drawerZone.right.visible {
+  background: linear-gradient(
+    to left,
+    rgba(196, 131, 106, 0.15),
+    transparent
+  );
+  border-left-color: rgba(196, 131, 106, 0.3);
+}
+
+.drawerZone.active {
+  width: 20px;
+  background: linear-gradient(
+    to right,
+    rgba(196, 131, 106, 0.25),
+    transparent
+  );
+  border-right-color: rgba(196, 131, 106, 0.5);
+}
+
+.drawerZone.right.active {
+  background: linear-gradient(
+    to left,
+    rgba(196, 131, 106, 0.25),
+    transparent
+  );
+  border-left-color: rgba(196, 131, 106, 0.5);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RAIL HEADER - Draggable handle
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.railHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+}
+
+.railHeader:active {
+  cursor: grabbing;
+}
+
+.railIcon {
+  width: 14px;
+  height: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.railTitle {
+  flex: 1;
+  font-family: var(--font-heading);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1;
+}
+
+.railCloseBtn {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  border-radius: 3px;
+  transition: background 150ms ease, color 150ms ease;
+  padding: 0;
+  line-height: 1;
+}
+
+.railCloseBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RAIL CONTENT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.railContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.railContent::-webkit-scrollbar {
+  width: 6px;
+}
+
+.railContent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.railContent::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.railContent::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LEFT RAIL - FILE TREE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.emptyState {
+  padding: 20px 14px;
+  text-align: center;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+}
+
+.fileTree {
+  padding: 4px 0;
+}
+
+.fileTreeItem {
+  user-select: none;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.fileRow:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.fileRow.folder {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.fileIcon {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.fileName {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder .fileName {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.fileChildren {
+  /* Children are indented via paddingLeft in component */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RIGHT RAIL - SESSIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.sessionList {
+  padding: 4px 8px;
+}
+
+.sessionItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  margin: 2px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.sessionItem:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sessionItem.active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sessionTitle {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.sessionMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+}
+
+.sessionStatus {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sessionStatus.tensions {
+  color: var(--accent-rust-light);
+}
+
+.sessionTime {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.sessionDivider {
+  color: rgba(255, 255, 255, 0.2);
+}

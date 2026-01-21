@@ -1,0 +1,175 @@
+/* Design Tokens - Dialectic V2Upgrade */
+/* Floating window system with vista backgrounds */
+
+:root {
+  /* ═══════════════════════════════════════════════════════════════════════════
+     FONTS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --font-display: 'Libre Baskerville', Georgia, serif;
+  --font-heading: 'Archivo Narrow', system-ui, sans-serif;
+  --font-body: 'Lora', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', 'Cousine', monospace;
+  --font-ui: 'Cousine', monospace;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     BACKGROUND COLORS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --bg-base: #1a1918;
+  --bg-app: #1F1E1B;
+  --bg-window: rgba(38, 36, 33, 0.97);
+  --bg-window-solid: #262421;
+  --bg-input: rgba(0, 0, 0, 0.3);
+  --bg-code: rgba(31, 30, 27, 0.8);
+  --bg-paper: #EDE9E0;
+  /* Legacy compatibility */
+  --bg-elevated: #2C2A26;
+  --bg-card: #363330;
+  --bg-hover: #4A4540;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     BORDER COLORS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --border-subtle: rgba(74, 71, 67, 0.6);
+  --border-default: #4A4743;
+  --border-input: #C4836A;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     TEXT COLORS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --text-primary: #D9D4CA;
+  --text-secondary: #B5B0A8;
+  --text-muted: #7A7672;
+  --text-inverse: #1F1E1B;
+  --text-dim: #4A453D;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     ACCENT COLORS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --accent-rust: #A65D3F;
+  --accent-rust-light: #C4836A;
+  --accent-forest: #4A6650;
+  --accent-forest-light: #6A8670;
+  /* Legacy compatibility */
+  --accent-primary: #A65D3F;
+  --accent-warm: #C4836A;
+  --accent-success: #4A6650;
+  --accent-info: #6B98B8;
+  --accent-error: #A04520;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SEMANTIC COLORS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-user: #C4836A;
+  --color-assistant: #6A8670;
+  --color-tool: #7A7672;
+  --color-tension: #C4836A;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     WINDOW CONTROLS (macOS traffic lights)
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --control-close: #E55A5A;
+  --control-minimize: #E5C05A;
+  --control-maximize: #5AE560;
+  --control-inactive: #4A4743;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     CATEGORY COLORS (Session types)
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --category-geopolitical: #A65D3F;
+  --category-market-structure: #4A6650;
+  --category-ai-infrastructure: #6B98B8;
+  --category-energy-power: #8B6B9C;
+  --category-operational: #B86B4A;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     TYPOGRAPHY SCALE
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
+  --text-3xl: 36px;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SPACING
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-2xl: 24px;
+  --space-3xl: 32px;
+  --space-4xl: 40px;
+  /* Legacy naming */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SIZING
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --header-height: 52px;
+  --input-height: 48px;
+  --status-height: 28px;
+  --rail-width: 260px;
+
+  /* Rail-specific colors (parchment aesthetic) */
+  --bg-rail: #E8E2D6;
+  --bg-rail-section: rgba(0, 0, 0, 0.04);
+  --text-rail-header: #6B6560;
+  --text-rail-primary: #3D3833;
+  --text-rail-secondary: #7A746B;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     BORDERS & RADIUS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-full: 9999px;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SHADOWS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-window: 0 4px 12px rgba(0,0,0,0.2), 0 12px 40px rgba(0,0,0,0.35);
+  --shadow-text: 0 2px 8px rgba(0,0,0,0.3);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Z-INDEX STACK
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --z-vista: 0;
+  --z-empty-state: 5;
+  --z-window-base: 50;
+  --z-rails: 80;
+  --z-keyboard-hints: 40;
+  --z-header: 100;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     TRANSITIONS
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --duration-fast: 100ms;
+  --duration-default: 150ms;
+  --duration-slow: 250ms;
+}

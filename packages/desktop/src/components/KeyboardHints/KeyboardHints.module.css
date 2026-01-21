@@ -1,0 +1,45 @@
+/* KeyboardHints.module.css - Per LANDSCAPE_DESIGN_SPEC.md */
+
+.container {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
+  z-index: var(--z-keyboard-hints);
+}
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kbd {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, monospace;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.label {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.separator {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* Hide on mobile */
+@media (max-width: 768px) {
+  .container {
+    display: none;
+  }
+}

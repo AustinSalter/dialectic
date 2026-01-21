@@ -1,0 +1,89 @@
+/* Vista Scroll Button Styles */
+
+.button {
+  position: fixed;
+  bottom: calc(52px + 16px); /* Above GlobalInputBar (52px) + spacing */
+  right: 16px;
+  z-index: 15; /* Above vista (10), below modals (100+) */
+
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+
+  background: rgba(44, 42, 38, 0.4);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(168, 164, 156, 0.2);
+  border-radius: 6px;
+
+  color: rgba(232, 226, 214, 0.7);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  cursor: pointer;
+
+  transition: all 200ms ease-out;
+}
+
+.button:hover {
+  background: rgba(44, 42, 38, 0.6);
+  border-color: rgba(168, 164, 156, 0.35);
+  color: rgba(232, 226, 214, 0.9);
+}
+
+.button:active {
+  transform: scale(0.98);
+}
+
+.button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(232, 184, 74, 0.5);
+}
+
+/* Vista name - hidden by default, shows on hover */
+.label {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition: max-width 200ms ease-out, opacity 200ms ease-out;
+}
+
+.button:hover .label {
+  max-width: 120px;
+  opacity: 1;
+}
+
+/* Chevron icon */
+.icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 200ms ease-out;
+}
+
+.button:hover .icon {
+  transform: translateY(2px);
+  opacity: 1;
+}
+
+/* Counter showing position */
+.counter {
+  opacity: 0.5;
+  font-size: 10px;
+}
+
+.button:hover .counter {
+  opacity: 0.8;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .label,
+  .icon {
+    transition: none;
+  }
+
+  .button:hover .icon {
+    transform: none;
+  }
+}
