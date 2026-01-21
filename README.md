@@ -144,13 +144,11 @@ dialectic/
 │   ├── scratchpad.py     # Anchored iterative compression state
 │   ├── thesis_router.py  # Pass 0: FIT/ADJ/NEW routing
 │   ├── memory.py         # Thesis, session, pattern persistence
-│   ├── metrics.py        # Quality scoring for multi-pass output
-│   └── compression_probes.py  # Eval framework (RACD probes)
+│   └── metrics.py        # Quality scoring for multi-pass output
 ├── skills/               # Claude Code skills
 │   ├── workflow-stages/      # GATHER, SHAPE, CRITIQUE, SYNTHESIZE
 │   ├── cognitive-pitfalls/   # Detects reasoning degradation
 │   ├── reasoning-harness/    # Multi-pass prompts
-│   ├── strategy-protocol/    # Decision framing
 │   └── thesis-management/    # FIT/ADJ/NEW routing
 ├── memories/             # Persistent memory layer
 │   ├── theses/           # Persistent beliefs (loaded by thesis_router)
