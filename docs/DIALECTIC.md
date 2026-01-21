@@ -13,7 +13,7 @@ Dialectic is **Claude Code for strategists**. The same agentic power that transf
 
 **The Breakthrough**: Multi-pass reasoning enables meta-level thinking that single-pass generation cannot access. Our experiments show:
 - **25%** of decisions reached different conclusions with multi-pass
-- **80%** correct on HBR cases vs 70% single-pass
+- **75%** correct on HBR cases vs 50% multi-agent
 - **9x** more flaws found with structured critique
 
 **V3 Evolution**: SDK-powered architecture with two distinct modes, session continuity, and harness_lite as invokable deep-thinking tool.

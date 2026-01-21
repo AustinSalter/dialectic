@@ -1,75 +1,116 @@
 # Architecture
 
-## Dialetic: A Workbench for High-Stakes Thinking
+## Dialectic: A Workbench for High-Stakes Thinking
 
 This document describes the dual-workflow architecture for shaping ideas and making decisions.
 
 ---
 
-## Two Workflows, One Harness
+## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              DIALECTIC                                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   IDEA WORKFLOW                         DECISION WORKFLOW                   │
-│   (Thesis Formation)                    (Strategy Resolution)               │
-│   ──────────────────                    ─────────────────────               │
-│                                                                             │
-│   Source Material                       Question + Context                  │
-│        ↓                                        ↓                           │
-│   ┌─────────┐                           ┌──────────────────┐                │
-│   │ GATHER  │ ← Claim extraction        │  ROUTE (Pass 0)  │                │
-│   └────┬────┘                           │  Thesis Router   │                │
-│        ↓                                └────────┬─────────┘                │
-│   ┌─────────┐                                    ↓                          │
-│   │  SHAPE  │ ← Interview (positions)   ┌──────────────────┐                │
-│   └────┬────┘                           │ FIT │ ADJ │ NEW  │                │
-│        ↓                                │     Context       │                │
-│   ┌─────────┐                           │     Budgets       │                │
-│   │CRITIQUE │ ← Tension Resolution      └────────┬─────────┘                │
-│   └────┬────┘                                    ↓                          │
-│        ↓                                ┌──────────────────┐                │
-│   ┌──────────┐                          │ REASON (Pass 1-N)│                │
-│   │SYNTHESIZE│                          └────────┬─────────┘                │
-│   └────┬─────┘                                   ↓                          │
-│        ↓                                ┌──────────────────┐                │
-│   ThesisDocument                        │ RESOLVE (Synth)  │                │
-│   • confidence                          └────────┬─────────┘                │
-│   • triggers                                     ↓                          │
-│        ↓                                Answer + Evidence Trail             │
-│        └──────────→ THESIS LIBRARY ←─────────────┘                          │
-│                                                                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                          SHARED: N-PASS HARNESS                             │
-│   ┌───────────────────────────────────────────────────────────────────────┐ │
-│   │  Expansion → Compression → Critique → Synthesis                       │ │
-│   │                                                                       │ │
-│   │  Markers: [INSIGHT] [EVIDENCE] [RISK] [COUNTER] [PATTERN] [DECISION]  │ │
-│   │  Priming Zone: 400-600 words optimal                                  │ │
-│   │  Termination: saturation | confidence ≥ 0.75 | max-cycles             │ │
-│   └───────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              DIALECTIC                                           │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│   IDEAS MODE                              DECISION MODE                          │
+│   (Extended Research)                     (Bounded Analysis)                     │
+│   ─────────────────                       ──────────────────                     │
+│                                                                                  │
+│   Source Material                         Question + Context                     │
+│        ↓                                         ↓                               │
+│   ┌─────────┐                            ┌──────────────────┐                    │
+│   │ GATHER  │ ← Claim extraction         │   THESIS ROUTER  │ ← Pass 0          │
+│   └────┬────┘                            │   (memory.py)    │                    │
+│        ↓                                 └────────┬─────────┘                    │
+│   ┌─────────┐                                     ↓                              │
+│   │  SHAPE  │ ← Interview positions      ┌──────────────────┐                    │
+│   └────┬────┘                            │ FIT │ ADJ │ NEW  │                    │
+│        ↓                                 │  Load relevant   │                    │
+│   ┌─────────┐                            │  thesis/pattern  │                    │
+│   │CRITIQUE │ ← 6 techniques             └────────┬─────────┘                    │
+│   └────┬────┘                                     ↓                              │
+│        ↓                                 ┌──────────────────┐                    │
+│   ┌──────────┐                           │ N-PASS HARNESS   │                    │
+│   │SYNTHESIZE│                           │ (harness_lite or │                    │
+│   └────┬─────┘                           │  harness.py SDK) │                    │
+│        ↓                                 └────────┬─────────┘                    │
+│   ThesisDocument                                  ↓                              │
+│   • confidence                           Answer + Evidence                       │
+│   • triggers                                      ↓                              │
+│        │                                          │                              │
+│        └────────────→ MEMORY LAYER ←──────────────┘                              │
+│                                                                                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                            MEMORY LAYER (memory.py)                              │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │  /memories                                                               │   │
+│   │  ├── theses/        Persistent beliefs → loaded by thesis_router        │   │
+│   │  │   └── {domain}/{thesis}.md                                           │   │
+│   │  ├── sessions/      Past analyses → context for continuity              │   │
+│   │  │   └── {date}-{topic}.yaml                                            │   │
+│   │  └── patterns/      Reusable frameworks → loaded for ADJACENT queries   │   │
+│   │      └── {pattern}.md                                                   │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                          QUALITY LOOP (cognitive-pitfalls)                       │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │                                                                          │   │
+│   │   /pattern check  ─────→  Runs after expansion, before synthesis        │   │
+│   │                                                                          │   │
+│   │   Detects: Confirmation bias │ Narrative fallacy │ Recency bias         │   │
+│   │            Illusion of depth │ Synonym drift │ Density collapse         │   │
+│   │            Fluency overconfidence                                        │   │
+│   │                                                                          │   │
+│   │   If HIGH risk → triggers additional pass or refinement                 │   │
+│   │                                                                          │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## The Shared Harness
+## Pass 0: Thesis Router
 
-Both workflows run on the same multi-pass reasoning engine.
+Before reasoning begins, the thesis router classifies the query and loads relevant context from memory.
+
+```
+Query → thesis_router.py → MemoryManager → Context Assembly → Pass 1
+```
+
+### Route Types
+
+| Route | When | Context Budget |
+|-------|------|----------------|
+| **FIT** | Matches existing thesis | 40% thesis, 30% data, 30% reasoning |
+| **ADJACENT** | Relates to known pattern | 30% pattern, 40% data, 30% reasoning |
+| **NET_NEW** | Fresh territory | 10% priors, 30% data, 60% reasoning |
+
+### Memory Integration
+
+The router queries the memory layer:
+1. **Thesis matching**: Semantic similarity to existing theses
+2. **Pattern matching**: Known frameworks that apply
+3. **Session context**: Recent work on related topics
+
+This ensures the harness doesn't start from scratch when you've already formed beliefs.
+
+---
+
+## The N-Pass Harness
+
+Both modes run on the same multi-pass reasoning engine.
 
 ### Multi-Pass Reasoning
 
-Single-pass AI is structurally equivalent to written text—query in, output out, done. It cannot step back and ask whether it answered the right question. Multi-pass creates space for *aporia*—the productive confusion where reframing happens.
+Single-pass AI cannot step back and ask whether it answered the right question. Multi-pass creates space for *aporia*—the productive confusion where reframing happens.
 
 **Two-pass achieved 83% insight coverage at 300 tokens** (6x more efficient than verbose single-pass):
 - **Pass 1 (Expansion)**: Divergent exploration with semantic markers
 - **Pass 2+ (Compression)**: Convergent synthesis preserving decision-relevant content
 
 ### Semantic Markers
-
-The harness uses semantic markers to identify and preserve decision-relevant content:
 
 | Marker | Purpose | Extraction Priority |
 |--------|---------|---------------------|
@@ -101,16 +142,46 @@ The critique pass uses six questioning techniques (validated to find 9x more fla
 
 ---
 
+## Quality Assurance: Cognitive Pitfalls
+
+The `cognitive-pitfalls` skill runs at key points to detect reasoning degradation:
+
+| Pitfall | Detection | Architectural Counter |
+|---------|-----------|----------------------|
+| Confirmation bias | All evidence points one way | Adversarial critique must be genuine |
+| Narrative fallacy | Explanation too clean | Uncertainty structural, not cosmetic |
+| Recency bias | Recent data dominates | Key evidence protected from crowding |
+| Illusion of depth | Satisfying but shallow | Force uncertainty before conclusion |
+| Synonym drift | Terms shift meaning | Semantic markers lock terminology |
+| Density collapse | Insights buried in bloat | Compression with ruthlessness |
+| Fluency overconfidence | Monotonic confidence | Non-monotonic trajectory required |
+
+**Integration points:**
+- Before synthesis pass
+- After compression pass
+- During critique phase
+- Before thesis publication
+
+---
+
 ## Backend Architecture
 
 ### Harness Implementations
 
-Two implementations are provided:
-
 | File | Dependency | Use Case |
 |------|------------|----------|
-| `harness_lite.py` | Direct Anthropic API | Portable, no SDK needed |
-| `harness.py` | Claude Agent SDK | Full subagent orchestration |
+| `harness_lite.py` | Direct Anthropic API | Decision Mode (fast, portable) |
+| `harness.py` | Claude Agent SDK | Ideas Mode (richer context accumulation) |
+
+### Core Modules
+
+| File | Purpose |
+|------|---------|
+| `thesis_router.py` | Pass 0 context assembly (FIT/ADJ/NEW) |
+| `memory.py` | Thesis, session, pattern persistence |
+| `scratchpad.py` | Anchored iterative compression state |
+| `metrics.py` | Quality scoring for multi-pass output |
+| `server_lite.py` | FastAPI server for Decision Mode |
 
 ### API Endpoints
 
@@ -120,25 +191,6 @@ Two implementations are provided:
 | `/ingest` | POST | Extract claims from URL/text |
 | `/harness/run` | POST | Run multi-pass analysis (REST) |
 | `/ws/harness` | WebSocket | Real-time streaming progress |
-
-### Data Flow
-
-```
-Frontend                    Backend
-   │                           │
-   ├── POST /ingest ──────────→│ Extract claims
-   │←── claims[] ──────────────│
-   │                           │
-   ├── WS /ws/harness ────────→│ Connect
-   │←── event: started ────────│
-   │←── event: pass_started ───│ For each pass:
-   │←── event: pass_progress ──│   - Expansion
-   │←── event: pass_completed ─│   - Compression
-   │←── event: completed ──────│   - Critique
-   │                           │   - Synthesis
-   │                           │
-   └── thesis_document ────────│
-```
 
 ---
 
@@ -163,6 +215,26 @@ packages/
 | `ThesisCard` | Synthesized thesis display |
 | `ThesisViewer` | Full thesis document with triggers |
 | `TensionCard` | Unresolved contradiction display |
+
+---
+
+## Roadmap
+
+### Phase 1: Current (Web + API)
+- React frontend with FastAPI backend
+- harness_lite for Decision Mode
+- Manual skill invocation
+
+### Phase 2: Desktop App
+- Tauri wrapper for native experience
+- Embedded harness skills
+- Local memory persistence
+
+### Phase 3: Claude Code Native
+- Embed terminal in UI
+- Run Claude Code directly with Dialectic skills
+- Full SDK integration (harness.py)
+- Memory layer as Claude Code context
 
 ---
 
