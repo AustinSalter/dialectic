@@ -21,6 +21,7 @@ interface DocumentViewerProps {
   onAsk?: (question: string) => void
   isPinned?: boolean
   hasActiveSession?: boolean
+  embedded?: boolean  // When true, hides internal titlebar (used inside FloatingWindow)
 }
 
 function SectionHeader({ title }: { title: string }) {
@@ -71,6 +72,7 @@ export function DocumentViewer({
   onAsk,
   isPinned = false,
   hasActiveSession = false,
+  embedded = false,
 }: DocumentViewerProps) {
   const [inputValue, setInputValue] = useState('')
 
@@ -89,40 +91,42 @@ export function DocumentViewer({
   }
 
   return (
-    <div className={styles.viewer}>
-      {/* Titlebar */}
-      <div className={styles.titlebar}>
-        <div className={styles.controls}>
-          <button
-            className={`${styles.control} ${styles.close}`}
-            onClick={onClose}
-            aria-label="Close"
-          />
-          <button
-            className={`${styles.control} ${styles.minimize}`}
-            aria-label="Minimize"
-          />
-          <button
-            className={`${styles.control} ${styles.maximize}`}
-            aria-label="Maximize"
-          />
+    <div className={`${styles.viewer} ${embedded ? styles.embedded : ''}`}>
+      {/* Titlebar - hidden when embedded in FloatingWindow */}
+      {!embedded && (
+        <div className={styles.titlebar}>
+          <div className={styles.controls}>
+            <button
+              className={`${styles.control} ${styles.close}`}
+              onClick={onClose}
+              aria-label="Close"
+            />
+            <button
+              className={`${styles.control} ${styles.minimize}`}
+              aria-label="Minimize"
+            />
+            <button
+              className={`${styles.control} ${styles.maximize}`}
+              aria-label="Maximize"
+            />
+          </div>
+          <div className={styles.filename}>{document.filename}</div>
+          <div className={styles.actions}>
+            <button
+              className={`${styles.actionBtn} ${isPinned ? styles.actionActive : ''}`}
+              onClick={onPin}
+            >
+              Pin
+            </button>
+            <button
+              className={styles.actionBtn}
+              onClick={() => onAddToSession?.(document.id)}
+            >
+              Add to Session
+            </button>
+          </div>
         </div>
-        <div className={styles.filename}>{document.filename}</div>
-        <div className={styles.actions}>
-          <button
-            className={`${styles.actionBtn} ${isPinned ? styles.actionActive : ''}`}
-            onClick={onPin}
-          >
-            Pin
-          </button>
-          <button
-            className={styles.actionBtn}
-            onClick={() => onAddToSession?.(document.id)}
-          >
-            Add to Session
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Document content */}
       <div className={styles.content}>

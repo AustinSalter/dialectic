@@ -7,6 +7,7 @@ export interface DocumentSection {
 
 export interface DocumentContent {
   id: string
+  title: string
   filename: string
   sections: DocumentSection[]
 }

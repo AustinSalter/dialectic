@@ -24,6 +24,7 @@ import { loadSessions, saveSessions, createSession } from './lib/storage'
 const demoDocuments: Record<string, DocumentContent> = {
   '/research/wang-letters.md': {
     id: 'wang-letters',
+    title: "Wang's Hard Tech Thesis",
     filename: 'wang-letters.md',
     sections: [
       {
@@ -52,6 +53,7 @@ const demoDocuments: Record<string, DocumentContent> = {
   },
   '/research/dalio-world-order.md': {
     id: 'dalio-world-order',
+    title: "Dalio's World Order Cycles",
     filename: 'dalio.md',
     sections: [
       {
@@ -82,11 +84,123 @@ interface SessionWindowState {
 // Z-index management - start above empty state (5) and window base (50)
 let nextZIndex = 60
 
+// Demo sessions for dev mode - provides sample data for demos
+function createDemoSessions(): Session[] {
+  const now = new Date()
+  const hourAgo = new Date(now.getTime() - 60 * 60 * 1000)
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+
+  return [
+    // SPARK column (backlog)
+    {
+      id: 'demo-session-1',
+      title: 'DeepSeek R1 vs OpenAI o1',
+      category: 'ai-infrastructure' as SessionCategory,
+      state: 'backlog' as SessionState,
+      mode: 'idea' as const,
+      claimCount: 0,
+      tensionCount: 0,
+      summary: 'Compare reasoning capabilities and cost structures',
+      createdAt: hourAgo,
+      updatedAt: hourAgo,
+    },
+    {
+      id: 'demo-session-2',
+      title: 'Tariff Impact on TSMC',
+      category: 'geopolitical' as SessionCategory,
+      state: 'backlog' as SessionState,
+      mode: 'decision' as const,
+      claimCount: 0,
+      tensionCount: 0,
+      summary: 'Analyze supply chain risks from new trade policies',
+      createdAt: dayAgo,
+      updatedAt: dayAgo,
+    },
+    // EXPLORE column
+    {
+      id: 'demo-session-3',
+      title: 'Nvidia Blackwell Demand Signals',
+      category: 'ai-infrastructure' as SessionCategory,
+      state: 'exploring' as SessionState,
+      mode: 'idea' as const,
+      claimCount: 8,
+      tensionCount: 1,
+      summary: 'Tracking enterprise adoption and hyperscaler orders',
+      createdAt: twoDaysAgo,
+      updatedAt: hourAgo,
+    },
+    {
+      id: 'demo-session-4',
+      title: 'Grid Capacity for AI Datacenters',
+      category: 'energy-power' as SessionCategory,
+      state: 'exploring' as SessionState,
+      mode: 'decision' as const,
+      claimCount: 12,
+      tensionCount: 2,
+      summary: 'Power constraints vs compute buildout trajectories',
+      createdAt: weekAgo,
+      updatedAt: dayAgo,
+    },
+    // TENSIONS column
+    {
+      id: 'demo-session-5',
+      title: 'China AI Chip Self-Sufficiency',
+      category: 'geopolitical' as SessionCategory,
+      state: 'tensions' as SessionState,
+      mode: 'idea' as const,
+      claimCount: 15,
+      tensionCount: 4,
+      summary: 'SMIC progress vs export control effectiveness',
+      createdAt: weekAgo,
+      updatedAt: twoDaysAgo,
+    },
+    // FORMING column
+    {
+      id: 'demo-session-6',
+      title: 'Microsoft Copilot ROI Thesis',
+      category: 'ai-infrastructure' as SessionCategory,
+      state: 'synthesizing' as SessionState,
+      mode: 'decision' as const,
+      claimCount: 18,
+      tensionCount: 3,
+      summary: 'Enterprise productivity gains vs subscription costs',
+      createdAt: weekAgo,
+      updatedAt: dayAgo,
+    },
+    // SHIP column (formed)
+    {
+      id: 'demo-session-7',
+      title: 'Renewable Intermittency Solutions',
+      category: 'energy-power' as SessionCategory,
+      state: 'formed' as SessionState,
+      mode: 'idea' as const,
+      claimCount: 22,
+      tensionCount: 0,
+      summary: 'Battery storage and grid flexibility technologies',
+      createdAt: weekAgo,
+      updatedAt: twoDaysAgo,
+    },
+  ]
+}
+
+// Load sessions with demo data fallback for dev mode
+function loadSessionsWithDemo(): Session[] {
+  const saved = loadSessions()
+  if (saved.length === 0 && import.meta.env.DEV) {
+    const demo = createDemoSessions()
+    saveSessions(demo)
+    return demo
+  }
+  return saved
+}
+
 function App() {
   const [view, setView] = useState<View>('terminal')
   const [blocks, setBlocks] = useState<CommandBlockData[]>([])
   const [commandHistory, setCommandHistory] = useState<string[]>([])
-  const [sessions, setSessions] = useState<Session[]>(() => loadSessions())
+  const [sessions, setSessions] = useState<Session[]>(() => loadSessionsWithDemo())
 
   // Session windows state
   const [openWindows, setOpenWindows] = useState<Map<string, SessionWindowState>>(new Map())
@@ -188,6 +302,18 @@ function App() {
       })
     }
   }, [activeWindowId])
+
+  // View change handler - clears floating windows when switching to Board
+  const handleViewChange = useCallback((newView: View) => {
+    setView(newView)
+    if (newView === 'board') {
+      // Close all floating windows
+      setOpenWindows(new Map())
+      setActiveWindowId(null)
+      setNotesWindowOpen(false)
+      setOpenDocument(null)
+    }
+  }, [])
 
   // Vista state (manual lock - resets on page refresh)
   const [vistaVariant, setVistaVariant] = useState<VistaType>('fire-lookout')
@@ -383,7 +509,7 @@ To complete this integration:
       // ⌘B for Board view
       if (e.metaKey && e.key === 'b') {
         e.preventDefault()
-        setView('board')
+        handleViewChange('board')
       }
       // ⇧⌘T for Terminal view (⌘T conflicts with browser new tab)
       if (e.metaKey && e.shiftKey && e.key.toLowerCase() === 't') {
@@ -505,7 +631,7 @@ To complete this integration:
         break
 
       case 'board':
-        setView('board')
+        handleViewChange('board')
         output = 'Switched to Board view'
         break
 
@@ -541,7 +667,7 @@ To complete this integration:
     <div className="app">
       <Header
         currentView={view}
-        onViewChange={setView}
+        onViewChange={handleViewChange}
         onNewSession={handleNewSession}
         onToggleNotes={handleToggleNotesWindow}
         notesOpen={notesWindowOpen}
@@ -657,28 +783,23 @@ To complete this integration:
 
       {/* Document Viewer Window */}
       {openDocument && demoDocuments[openDocument] && (
-        <div
-          className="documentViewerWindow"
-          style={{
-            position: 'fixed',
-            top: 100,
-            left: 280,
-            width: 600,
-            height: 550,
-            zIndex: documentZIndex,
-            borderRadius: 10,
-            overflow: 'hidden',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
-          }}
-          onClick={handleFocusDocument}
+        <FloatingWindow
+          id={`doc-${demoDocuments[openDocument].id}`}
+          title={demoDocuments[openDocument].title}
+          initialPosition={{ x: 280, y: 100 }}
+          initialSize={{ width: 600, height: 550 }}
+          zIndex={documentZIndex}
+          onClose={handleCloseDocument}
+          onFocus={handleFocusDocument}
         >
           <DocumentViewer
             document={demoDocuments[openDocument]}
             onClose={handleCloseDocument}
             onAddToSession={handleAddDocumentToSession}
             hasActiveSession={!!activeWindowId}
+            embedded
           />
-        </div>
+        </FloatingWindow>
       )}
 
       {/* Sidebar Rails */}

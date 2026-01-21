@@ -74,6 +74,13 @@ export function NotesPanel({
                 onDoubleClick={() => onTogglePin(note.id)}
               >
                 <div className={styles.noteContent}>{note.content}</div>
+                <button
+                  className={styles.deleteButton}
+                  onClick={() => onDeleteNote(note.id)}
+                  aria-label="Delete note"
+                >
+                  ×
+                </button>
               </div>
             ))}
           </div>
