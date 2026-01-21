@@ -1,41 +1,25 @@
-# Dialectic
+# Dialectic Documentation
 
-Strategic intelligence workbench for processing ideas through dialectical reasoning.
+This folder contains the core documentation for Dialectic.
 
-## Quick Start
+## Contents
 
-### Prerequisites
-- Node.js 20+
-- Python 3.10+
+| Document | Description |
+|----------|-------------|
+| [DIALECTIC.md](./DIALECTIC.md) | Core concepts, V3 dual-mode architecture, token budget, session segments |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System design, data flow, backend/frontend architecture, roadmap |
+| [EXPERIMENTS.md](./EXPERIMENTS.md) | Validation experiments and findings (EXP-004 through EXP-019) |
 
-### Setup
+## Quick Reference
 
-```bash
-# Install frontend dependencies
-npm install
+**Two Modes:**
+- **Decision Mode** — Bounded analysis (~10 min), uses `harness_lite.py`
+- **Ideas Mode** — Extended research (hours to days), uses SDK with session continuity
 
-# Install backend dependencies
-cd backend && pip install -r requirements.txt
-```
+**Key Findings:**
+- 25% different conclusions with multi-pass vs single-pass
+- 75% vs 50% correct on HBR cases (multi-pass vs multi-agent)
+- 9x more flaws found with structured critique
+- 6x compression efficiency with two-pass
 
-### Development
-
-```bash
-# Terminal 1: Start backend
-cd backend && python server_lite.py
-
-# Terminal 2: Start frontend
-npm run dev
-```
-
-Open http://localhost:5173
-
-## Architecture
-
-- `packages/web/` - React frontend (Vite + TypeScript + Tailwind)
-- `packages/shared/` - Shared types and utilities
-- `backend/` - Python FastAPI backend with multi-pass reasoning engine
-
-## License
-
-MIT
+See the [root README](../README.md) for quick start instructions.
