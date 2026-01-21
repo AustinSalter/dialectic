@@ -34,6 +34,7 @@ npm-debug.log*
 
 # Internal workflow docs (not for public repo)
 SYNC_PROTOCOL.md
+packages/desktop/docs/
 
 # Experiment outputs (raw results not tracked)
 backend/outputs/
