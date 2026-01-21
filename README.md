@@ -2,7 +2,7 @@
 
 **Strategic intelligence workbench for high-stakes decision-making.**
 
-Dialectic is Claude Code for strategists—multi-pass reasoning that enables meta-level thinking unavailable in single-pass AI.
+Dialectic is an agentic harness for strategists—multi-pass reasoning that enables meta-level thinking unavailable in single-pass AI.
 
 ## Why Dialectic?
 
