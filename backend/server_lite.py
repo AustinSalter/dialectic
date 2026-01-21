@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Cannon Multi-Pass Harness (Lite)",
+    title="Dialectic Multi-Pass Harness (Lite)",
     description="Multi-pass reasoning harness using direct Anthropic API",
     version="1.0.0",
     lifespan=lifespan,

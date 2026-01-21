@@ -8,7 +8,7 @@ This document summarizes the validation experiments that informed Dialectic's ar
 
 | Finding | Experiment | Result |
 |---------|------------|--------|
-| Multi-pass enables meta-level thinking | EXP-004, EXP-005 | 25% different conclusions, 80% vs 70% on HBR cases |
+| Multi-pass enables meta-level thinking | EXP-004, EXP-005 | 25% different conclusions, 75% vs 50% on HBR cases |
 | Two-pass compression is 6x efficient | EXP-003 | 83% insight coverage at 300 tokens |
 | Accumulated context beats partitioned | EXP-005 | ~90% vs ~60% frame-level insight preservation |
 | Structured critique finds 9x more flaws | EXP-007 | 18 vs 2 flaws found |

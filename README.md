@@ -98,7 +98,7 @@ dialectic/
 ├── packages/
 │   ├── web/              # React frontend
 │   ├── shared/           # Shared types
-│   └── desktop/          # Tauri wrapper (planned)
+│   └── desktop/          # Tauri desktop app
 ├── backend/
 │   ├── server_lite.py    # FastAPI server
 │   ├── harness_lite.py   # Direct API harness

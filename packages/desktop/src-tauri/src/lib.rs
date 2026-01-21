@@ -1,5 +1,5 @@
 // Dialectic - Strategic reasoning through dialectical synthesis
-// Phase 1: Basic Tauri shell wrapping workflow-app-v2
+// Phase 1: Basic Tauri shell wrapping web frontend
 
 use tauri::Manager;
 

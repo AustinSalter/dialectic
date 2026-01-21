@@ -35,6 +35,6 @@ npm-debug.log*
 # Internal workflow docs (not for public repo)
 SYNC_PROTOCOL.md
 
-# Experiment outputs (raw results stay in Cannon/POC)
+# Experiment outputs (raw results not tracked)
 backend/outputs/
 backend/run_*.py
