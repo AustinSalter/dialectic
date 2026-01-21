@@ -1,0 +1,21 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- macOS squircle mask -->
+  <defs>
+    <clipPath id="squircle">
+      <path d="M256 8C120.8 8 8 120.8 8 256s112.8 248 248 248 248-112.8 248-248S391.2 8 256 8z"/>
+    </clipPath>
+    <linearGradient id="grad" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0%" stop-color="#4A6650" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#1F1E1B" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  
+  <g clip-path="url(#squircle)">
+    <!-- Background -->
+    <rect width="512" height="512" fill="#1F1E1B"/>
+    <!-- Gradient overlay -->
+    <rect width="512" height="512" fill="url(#grad)" opacity="0.4"/>
+    <!-- The stroke -->
+    <line x1="304" y1="120" x2="208" y2="392" stroke="#C4836A" stroke-width="36" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -1,0 +1,191 @@
+/* SessionCard.module.css - Glass card design */
+
+.card {
+  position: relative;
+  background: rgba(48, 46, 42, 0.9);
+  border-radius: 6px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.card:hover {
+  background: rgba(58, 56, 52, 0.95);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.card:hover .deleteButton {
+  opacity: 1;
+}
+
+.card.dragging {
+  opacity: 0.6;
+  cursor: grabbing;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  transform: rotate(2deg);
+}
+
+/* Delete button - appears on hover */
+.deleteButton {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  border: none;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms ease, background 150ms ease, color 150ms ease;
+  z-index: 10;
+}
+
+.deleteButton:hover {
+  background: rgba(160, 69, 32, 0.8);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.categoryBadge {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 0.8;
+}
+
+.tensionBadge {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-tension);
+  color: white;
+  margin-left: auto;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+  margin: 0 0 6px 0;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.summary {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 0 0 10px 0;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.claims {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.status {
+  font-family: var(--font-ui);
+  font-size: 9px;
+}
+
+.status.tensions {
+  color: var(--color-tension);
+}
+
+.status.exploring {
+  color: var(--color-assistant);
+}
+
+.time {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* Triggers badge for formed/ship state */
+.triggersBadge {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* Confidence indicator */
+.confidence {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* New Session Card variant */
+.newSessionCard {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 16px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 80px;
+  transition: all 150ms ease;
+}
+
+.newSessionCard:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.newSessionCard .plus {
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.35);
+  font-weight: 300;
+}
+
+.newSessionCard:hover .plus {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.newSessionCard .label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+}

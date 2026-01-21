@@ -1,0 +1,168 @@
+/* Header.module.css - V2Upgrade Design */
+/* Matches LANDSCAPE_DESIGN_SPEC.md exactly */
+
+.header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 20px 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: var(--z-header);
+  /* NO background - fully transparent */
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 18px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.logoMark {
+  flex-shrink: 0;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.newBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  border: none;
+  margin-left: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.newBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 8px;
+}
+
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border-radius: 6px;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.iconBtn.iconBtnActive {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.plus {
+  font-size: 14px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1;
+}
+
+.nav {
+  display: flex;
+  gap: 8px;
+}
+
+.navBtn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.navBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Terminal button when active - solid rust color */
+.navBtn.active:first-child {
+  background: #c05040;
+  color: white;
+}
+
+.navBtn.active:first-child:hover {
+  background: #d06050;
+}
+
+/* Board button when active - slightly brighter glass */
+.navBtn.active:last-child {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.notesBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.notesBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.notesBtn.notesActive {
+  background: rgba(196, 131, 106, 0.25);
+  color: #C4836A;
+}
+
+.notesBtn.notesActive:hover {
+  background: rgba(196, 131, 106, 0.35);
+}

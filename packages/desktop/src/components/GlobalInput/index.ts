@@ -1,0 +1,1 @@
+export { GlobalInputBar } from './GlobalInputBar'

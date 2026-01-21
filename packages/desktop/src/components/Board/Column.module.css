@@ -1,0 +1,100 @@
+/* Column.module.css - Floating glass columns */
+
+.column {
+  min-width: 220px;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+
+  /* Floating glass effect */
+  background: rgba(38, 36, 33, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+
+  padding: var(--space-3);
+  transition: background 150ms ease, box-shadow 150ms ease;
+
+  /* Dynamic height - fit content, don't stretch */
+  align-self: flex-start;
+  height: auto;
+}
+
+.column.over {
+  background: rgba(50, 48, 44, 0.9);
+  box-shadow: 0 0 20px rgba(196, 131, 106, 0.2), 0 8px 32px rgba(0, 0, 0, 0.35);
+  border-color: rgba(196, 131, 106, 0.3);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-1);
+}
+
+.title {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.count {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.description {
+  display: none; /* Hide description for cleaner look */
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 60px;
+}
+
+/* Empty state styling */
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-style: italic;
+}
+
+/* Add button at bottom of column */
+.addButton {
+  margin-top: var(--space-2);
+  padding: 8px;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.addButton:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.05);
+}

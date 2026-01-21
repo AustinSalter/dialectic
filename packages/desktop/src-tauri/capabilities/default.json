@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schemas.tauri.app/v2/capabilities",
+  "identifier": "default",
+  "description": "Default capabilities for Dialectic",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "fs:default",
+    "fs:allow-app-read",
+    "fs:allow-app-write",
+    "fs:allow-app-read-recursive",
+    "fs:allow-app-write-recursive"
+  ]
+}

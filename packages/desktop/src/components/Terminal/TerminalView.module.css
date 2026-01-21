@@ -1,0 +1,67 @@
+/* TerminalView.module.css - V2Upgrade Design */
+
+.container {
+  position: absolute;
+  top: var(--header-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Legacy output container (if not using windows) */
+.output {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: var(--space-4);
+  pointer-events: auto;
+}
+
+.blocks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Command input floats at bottom when no window */
+.inputWrapper {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  pointer-events: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FLOATING WINDOW CONTENT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.windowContent {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+.conversation {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.windowInput {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-subtle);
+}
