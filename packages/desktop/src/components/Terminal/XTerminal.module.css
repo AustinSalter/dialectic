@@ -1,0 +1,79 @@
+/* XTerminal styles - matches dialectic-terminal-mockup_1.html design tokens */
+
+.container {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: #1F1E1B;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal {
+  flex: 1;
+  padding: 12px;
+  min-height: 0;
+}
+
+/* Override xterm.js internal styles for consistent sizing */
+.terminal :global(.xterm) {
+  height: 100%;
+}
+
+.terminal :global(.xterm-viewport) {
+  overflow-y: auto !important;
+}
+
+/* Scrollbar styling */
+.terminal :global(.xterm-viewport)::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal :global(.xterm-viewport)::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal :global(.xterm-viewport)::-webkit-scrollbar-thumb {
+  background: rgba(196, 131, 106, 0.3);
+  border-radius: 4px;
+}
+
+.terminal :global(.xterm-viewport)::-webkit-scrollbar-thumb:hover {
+  background: rgba(196, 131, 106, 0.5);
+}
+
+/* Loading/error overlay */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(31, 30, 27, 0.9);
+  color: #7A7672;
+  font-family: 'IBM Plex Mono', 'Cousine', monospace;
+  font-size: 14px;
+  z-index: 10;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #4A4743;
+  border-top-color: #C4836A;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.error {
+  color: #E55A5A;
+}

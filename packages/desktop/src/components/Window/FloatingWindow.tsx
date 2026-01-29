@@ -10,7 +10,7 @@ import { useDraggable } from '../../hooks/useDraggable'
 import styles from './FloatingWindow.module.css'
 
 interface WindowStatus {
-  type: 'tensions' | 'active' | 'notes'
+  type: 'tensions' | 'active' | 'notes' | 'terminal'
   count?: number
 }
 
@@ -94,6 +94,9 @@ export function FloatingWindow({
     if (status.type === 'notes') {
       return `${status.count ?? 0} note${status.count !== 1 ? 's' : ''}`
     }
+    if (status.type === 'terminal') {
+      return 'terminal'
+    }
     return null
   }
 
@@ -165,7 +168,9 @@ export function FloatingWindow({
                   ? styles.statusTensions
                   : status.type === 'active'
                     ? styles.statusActive
-                    : ''
+                    : status.type === 'terminal'
+                      ? styles.statusTerminal
+                      : ''
               }`}
             >
               {getStatusText()}

@@ -36,6 +36,8 @@ npm-debug.log*
 SYNC_PROTOCOL.md
 packages/desktop/docs/
 
-# Experiment outputs (raw results not tracked)
-backend/outputs/
-backend/run_*.py
+# Archived code (superseded by terminal-native implementation)
+_archive/
+
+# Obsidian app config
+.obsidian/

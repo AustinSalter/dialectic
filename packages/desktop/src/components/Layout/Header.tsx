@@ -3,10 +3,12 @@
  *
  * Top navigation bar with:
  * - Logo mark (diagonal line SVG) + "dialectic" wordmark
- * - New session button (+)
+ * - New session button (+) - opens folder picker for terminal sessions
  * - Terminal / Board view toggles
  */
 
+import { useCallback, useState } from 'react'
+import { pickFolder } from '../../lib/folderPicker'
 import styles from './Header.module.css'
 
 export type View = 'terminal' | 'board'
@@ -15,6 +17,7 @@ interface HeaderProps {
   currentView: View
   onViewChange: (view: View) => void
   onNewSession?: () => void
+  onNewSessionWithFolder?: (path: string, name: string) => void
   onToggleNotes?: () => void
   notesOpen?: boolean
   onToggleFilesRail?: () => void
@@ -27,6 +30,7 @@ export function Header({
   currentView,
   onViewChange,
   onNewSession,
+  onNewSessionWithFolder,
   onToggleNotes,
   notesOpen,
   onToggleFilesRail,
@@ -34,6 +38,25 @@ export function Header({
   onToggleSessionsRail,
   sessionsRailOpen,
 }: HeaderProps) {
+  const [isPickingFolder, setIsPickingFolder] = useState(false)
+
+  // Handle new session with folder picker
+  const handleNewSessionClick = useCallback(async () => {
+    if (onNewSessionWithFolder) {
+      if (isPickingFolder) return
+      setIsPickingFolder(true)
+      try {
+        const folder = await pickFolder()
+        if (folder) {
+          onNewSessionWithFolder(folder.path, folder.name)
+        }
+      } finally {
+        setIsPickingFolder(false)
+      }
+    } else if (onNewSession) {
+      onNewSession()
+    }
+  }, [onNewSession, onNewSessionWithFolder, isPickingFolder])
   return (
     <header className={styles.header}>
       <div className={styles.headerLeft}>
@@ -54,7 +77,8 @@ export function Header({
         </div>
         <button
           className={styles.newBtn}
-          onClick={onNewSession}
+          onClick={handleNewSessionClick}
+          disabled={isPickingFolder}
           title="New Session (⌥⌘N)"
         >
           <span className={styles.plus}>+</span>

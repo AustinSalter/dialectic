@@ -138,6 +138,10 @@
   color: var(--color-assistant);
 }
 
+.status.statusTerminal {
+  color: #C4836A; /* --rust-light from terminal mockup */
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    NOTES WINDOW VARIANT
    ═══════════════════════════════════════════════════════════════════════════ */

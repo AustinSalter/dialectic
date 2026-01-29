@@ -1,5 +1,3 @@
 export { TerminalView } from './TerminalView'
 export { EmptyState } from './EmptyState'
-export { CommandInput } from './CommandInput'
-export { CommandBlock } from './CommandBlock'
-export type { CommandBlockData, CommandStatus } from './CommandBlock'
+export { XTerminal } from './XTerminal'

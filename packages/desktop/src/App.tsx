@@ -8,7 +8,8 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Header, type View } from './components/Layout'
 import { Vista, VistaScrollButton, type VistaType, vistaOrder } from './components/Vista'
-import { TerminalView, type CommandBlockData } from './components/Terminal'
+import { TerminalView, XTerminal } from './components/Terminal'
+import { invoke } from '@tauri-apps/api/core'
 import { BoardView } from './components/Board'
 import { KeyboardHints } from './components/KeyboardHints'
 import { FloatingWindow } from './components/Window'
@@ -19,6 +20,7 @@ import { NotesPanel, type Note } from './components/Notes'
 import { DocumentViewer, type DocumentContent } from './components/DocumentViewer'
 import type { Session, SessionState, SessionCategory } from './components/Kanban'
 import { loadSessions, saveSessions, createSession } from './lib/storage'
+import { pickFolder } from './lib/folderPicker'
 
 // Demo document content
 const demoDocuments: Record<string, DocumentContent> = {
@@ -79,6 +81,8 @@ interface SessionWindowState {
   isFullscreen: boolean
   isThinking: boolean
   messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  workingDir: string | null    // Terminal working directory
+  terminalActive: boolean      // Whether this is a terminal session
 }
 
 // Z-index management - start above empty state (5) and window base (50)
@@ -198,8 +202,6 @@ function loadSessionsWithDemo(): Session[] {
 
 function App() {
   const [view, setView] = useState<View>('terminal')
-  const [blocks, setBlocks] = useState<CommandBlockData[]>([])
-  const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [sessions, setSessions] = useState<Session[]>(() => loadSessionsWithDemo())
 
   // Session windows state
@@ -369,6 +371,8 @@ function App() {
         isFullscreen: false,
         isThinking: false,
         messages: [],
+        workingDir: null,
+        terminalActive: false,
       })
       return updated
     })
@@ -377,6 +381,14 @@ function App() {
 
   // Close a session window
   const handleCloseSession = useCallback((sessionId: string) => {
+    // Kill terminal if it was a terminal session
+    const windowState = openWindows.get(sessionId)
+    if (windowState?.terminalActive) {
+      invoke('kill_terminal', { sessionId }).catch((err) => {
+        console.warn('Failed to kill terminal:', err)
+      })
+    }
+
     setOpenWindows((prev) => {
       const updated = new Map(prev)
       updated.delete(sessionId)
@@ -476,7 +488,7 @@ To complete this integration:
     })
   }, [])
 
-  // Create new session and open it
+  // Create new session and open it (conversation mode)
   const handleNewSession = useCallback(() => {
     const categories: SessionCategory[] = ['geopolitical', 'market-structure', 'ai-infrastructure', 'energy-power', 'operational']
     const randomCategory = categories[Math.floor(Math.random() * categories.length)]
@@ -492,6 +504,33 @@ To complete this integration:
     handleOpenSession(newSession.id)
   }, [handleOpenSession])
 
+  // Create new terminal session with folder picker
+  const handleNewSessionWithFolder = useCallback((path: string, name: string) => {
+    const newSession = createSession({
+      title: name,
+      category: 'operational',
+      summary: path,
+      mode: 'idea',
+    })
+
+    setSessions((prev) => [...prev, newSession])
+
+    // Open window with terminal active
+    setOpenWindows((prev) => {
+      const updated = new Map(prev)
+      updated.set(newSession.id, {
+        zIndex: nextZIndex++,
+        isFullscreen: false,
+        isThinking: false,
+        messages: [],
+        workingDir: path,
+        terminalActive: true,
+      })
+      return updated
+    })
+    setActiveWindowId(newSession.id)
+  }, [])
+
   // Global keyboard shortcuts
   // Note: ⌘N and ⌘W conflict with browser/macOS, so use Shift+⌘ variants
   useEffect(() => {
@@ -500,11 +539,10 @@ To complete this integration:
       const target = e.target as HTMLElement
       const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
 
-      // ⌘K or / to focus command input (unless typing in input)
+      // ⌘K or / to switch to terminal view (unless typing in input)
       if ((e.metaKey && e.key === 'k') || (e.key === '/' && !isTyping)) {
         e.preventDefault()
         setView('terminal')
-        // Focus will happen via TerminalView's CommandInput
       }
       // ⌘B for Board view
       if (e.metaKey && e.key === 'b') {
@@ -516,11 +554,15 @@ To complete this integration:
         e.preventDefault()
         setView('terminal')
       }
-      // ⌥⌘N for new session (⌘N and ⇧⌘N conflict with browser)
+      // ⌥⌘N for new terminal session with folder picker (⌘N and ⇧⌘N conflict with browser)
       // Use e.code because Option+N produces "ñ" as e.key on Mac
       if (e.metaKey && e.altKey && e.code === 'KeyN') {
         e.preventDefault()
-        handleNewSession()
+        pickFolder().then((folder) => {
+          if (folder) {
+            handleNewSessionWithFolder(folder.path, folder.name)
+          }
+        })
       }
       // Escape to close active window (⌘W conflicts with browser close tab)
       if (e.key === 'Escape' && activeWindowId && !isTyping) {
@@ -545,120 +587,7 @@ To complete this integration:
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleNewSession, activeWindowId, handleCloseSession, handleToggleNotesWindow])
-
-  const handleCommand = useCallback((command: string) => {
-    // Add to history
-    setCommandHistory((prev) => [...prev, command])
-
-    // Create new block
-    const blockId = `block-${Date.now()}`
-    const newBlock: CommandBlockData = {
-      id: blockId,
-      command,
-      output: '',
-      status: 'running',
-      timestamp: new Date(),
-    }
-    setBlocks((prev) => [...prev, newBlock])
-
-    // Process command
-    const [cmd] = command.toLowerCase().split(' ')
-    let output = ''
-    let status: CommandBlockData['status'] = 'done'
-
-    switch (cmd) {
-      case 'help':
-        output = `**Available Commands**
-
-- \`help\` - Show this help message
-- \`terminal\` - Switch to Terminal view
-- \`board\` - Switch to Board view
-- \`sessions\` - List all sessions
-- \`clear\` - Clear terminal output
-- \`ingest <url>\` - Fetch and analyze content (coming soon)
-- \`ingest --paste\` - Analyze clipboard content (coming soon)
-- \`demo\` - Add sample sessions for testing`
-        break
-
-      case 'demo': {
-        const demoSessions: Session[] = [
-          {
-            id: `session-${Date.now()}-1`,
-            title: 'Tariff Impact on Semiconductor Supply Chain',
-            category: 'geopolitical',
-            state: 'backlog',
-            mode: 'decision',
-            claimCount: 12,
-            tensionCount: 3,
-            summary: 'Analyzing potential supply chain disruptions from new trade policies',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-          {
-            id: `session-${Date.now()}-2`,
-            title: 'AI Infrastructure Investment Thesis',
-            category: 'ai-infrastructure',
-            state: 'exploring',
-            mode: 'idea',
-            claimCount: 8,
-            tensionCount: 2,
-            summary: 'Evaluating compute build-out trajectories and power constraints',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-          {
-            id: `session-${Date.now()}-3`,
-            title: 'Energy Grid Transformation',
-            category: 'energy-power',
-            state: 'tensions',
-            mode: 'decision',
-            claimCount: 15,
-            tensionCount: 5,
-            summary: 'Data center power demand vs renewable capacity growth',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        ]
-        setSessions((prev) => [...prev, ...demoSessions])
-        output = `Added ${demoSessions.length} demo sessions. Switch to Board view with \`board\` to see them.`
-        break
-      }
-
-      case 'terminal':
-        setView('terminal')
-        output = 'Switched to Terminal view'
-        break
-
-      case 'board':
-        handleViewChange('board')
-        output = 'Switched to Board view'
-        break
-
-      case 'sessions':
-        if (sessions.length === 0) {
-          output = 'No sessions yet. Use `ingest <url>` to start one.'
-        } else {
-          output = sessions.map((s) => `- **${s.title}** (${s.state})`).join('\n')
-        }
-        break
-
-      case 'clear':
-        setBlocks([])
-        return // Don't add a block for clear
-
-      default:
-        output = `Unknown command: \`${cmd}\`. Type \`help\` for available commands.`
-        status = 'error'
-    }
-
-    // Update block with output
-    setBlocks((prev) =>
-      prev.map((b) =>
-        b.id === blockId ? { ...b, output, status } : b
-      )
-    )
-  }, [sessions])
+  }, [handleNewSessionWithFolder, activeWindowId, handleCloseSession, handleToggleNotesWindow])
 
   // Get session by ID helper
   const getSession = (sessionId: string) => sessions.find((s) => s.id === sessionId)
@@ -669,6 +598,7 @@ To complete this integration:
         currentView={view}
         onViewChange={handleViewChange}
         onNewSession={handleNewSession}
+        onNewSessionWithFolder={handleNewSessionWithFolder}
         onToggleNotes={handleToggleNotesWindow}
         notesOpen={notesWindowOpen}
         onToggleFilesRail={() => setLeftRailOpen(!leftRailOpen)}
@@ -682,7 +612,7 @@ To complete this integration:
         <>
           <Vista
             variant={vistaVariant}
-            showBear={blocks.length === 0 && openWindows.size === 0}
+            showBear={openWindows.size === 0}
           />
           <VistaScrollButton
             currentVista={vistaVariant}
@@ -694,9 +624,6 @@ To complete this integration:
       {/* Main content */}
       {view === 'terminal' ? (
         <TerminalView
-          blocks={blocks}
-          commandHistory={commandHistory}
-          onCommand={handleCommand}
           hasOpenSessions={openWindows.size > 0}
           vistaVariant={vistaVariant}
         />
@@ -719,7 +646,7 @@ To complete this integration:
             key={sessionId}
             id={sessionId}
             title={session.title}
-            status={{ type: session.tensionCount > 0 ? 'tensions' : 'active', count: session.tensionCount }}
+            status={{ type: windowState.terminalActive ? 'terminal' : (session.tensionCount > 0 ? 'tensions' : 'active'), count: session.tensionCount }}
             initialPosition={{ x: 100 + (openWindows.size * 20), y: 80 + (openWindows.size * 20) }}
             initialSize={{ width: 700, height: 500 }}
             isFullscreen={windowState.isFullscreen}
@@ -729,31 +656,39 @@ To complete this integration:
             onMaximize={() => handleToggleFullscreen(sessionId)}
             onFocus={() => handleFocusSession(sessionId)}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-              <Conversation>
-                {windowState.messages.length === 0 && !windowState.isThinking ? (
-                  <div style={{ padding: '24px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                    Start typing to explore this thesis. Ask questions, challenge assumptions, or paste content to analyze.
-                  </div>
-                ) : (
-                  <>
-                    {windowState.messages.map((msg, idx) => (
-                      <Entry key={idx} role={msg.role}>
-                        {msg.content}
-                      </Entry>
-                    ))}
-                    {windowState.isThinking && <ThinkingIndicator message="Analyzing" />}
-                  </>
-                )}
-              </Conversation>
-              <InputArea
-                placeholder="Continue the analysis..."
-                promptChar=">"
-                onSubmit={(value) => handleSessionMessage(sessionId, value)}
-                autoFocus={sessionId === activeWindowId}
-                disabled={windowState.isThinking}
+            {windowState.terminalActive && windowState.workingDir ? (
+              <XTerminal
+                sessionId={sessionId}
+                workingDir={windowState.workingDir}
+                onClose={() => handleCloseSession(sessionId)}
               />
-            </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                <Conversation>
+                  {windowState.messages.length === 0 && !windowState.isThinking ? (
+                    <div style={{ padding: '24px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                      Start typing to explore this thesis. Ask questions, challenge assumptions, or paste content to analyze.
+                    </div>
+                  ) : (
+                    <>
+                      {windowState.messages.map((msg, idx) => (
+                        <Entry key={idx} role={msg.role}>
+                          {msg.content}
+                        </Entry>
+                      ))}
+                      {windowState.isThinking && <ThinkingIndicator message="Analyzing" />}
+                    </>
+                  )}
+                </Conversation>
+                <InputArea
+                  placeholder="Continue the analysis..."
+                  promptChar=">"
+                  onSubmit={(value) => handleSessionMessage(sessionId, value)}
+                  autoFocus={sessionId === activeWindowId}
+                  disabled={windowState.isThinking}
+                />
+              </div>
+            )}
           </FloatingWindow>
         )
       })}
@@ -821,7 +756,7 @@ To complete this integration:
         activeSessionId={activeWindowId}
         activeSessionTitle={activeWindowId ? getSession(activeWindowId)?.title : undefined}
         onMessage={handleSessionMessage}
-        onCommand={handleCommand}
+        onNewSessionWithFolder={handleNewSessionWithFolder}
         disabled={activeWindowId ? openWindows.get(activeWindowId)?.isThinking : false}
       />
 
