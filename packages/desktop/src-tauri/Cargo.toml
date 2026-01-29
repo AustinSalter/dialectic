@@ -1,27 +1,51 @@
 [package]
 name = "dialectic"
 version = "0.1.0"
-description = "Strategic reasoning through dialectical synthesis"
-authors = ["Austin Salter"]
+description = "A thinking interface for strategic reasoning"
+authors = ["Dialectic"]
+license = "MIT"
+repository = ""
 edition = "2021"
-
-[lib]
-name = "dialectic_lib"
-crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+portable-pty = "0.8"
+notify = { version = "6", features = ["serde"] }
+notify-debouncer-mini = "0.4"
+ulid = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+thiserror = "1"
+parking_lot = "0.12"
+# Context management
+tiktoken-rs = "0.5"
+lazy_static = "1.4"
+anyhow = "1"
 
-[profile.release]
-panic = "abort"
-codegen-units = 1
-lto = true
-opt-level = "s"
-strip = true
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+[lib]
+name = "dialectic_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dialectic"
+path = "src/bin/dialectic.rs"
+
+[[bin]]
+name = "dialectic-tauri"
+path = "src/main.rs"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

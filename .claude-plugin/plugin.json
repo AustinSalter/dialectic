@@ -1,0 +1,7 @@
+{
+  "name": "dialectic",
+  "version": "1.1.0",
+  "description": "Multi-pass dialectic reasoning with context management",
+  "commands": ["dialectic", "cancel-dialectic", "brief"],
+  "hooks": ["stop", "pre_submit"]
+}
