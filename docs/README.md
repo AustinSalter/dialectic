@@ -1,19 +1,8 @@
 # Dialectic Documentation
 
-## Current Documentation
+## Architecture Overview
 
-The primary documentation lives in the `overhaul/` directory:
-
-| Document | Description |
-|----------|-------------|
-| [Architecture](./overhaul/ARCHITECTURE.md) | Desktop app architecture, terminal integration, project structure |
-| [Backend & Context](./overhaul/design-doc-backend-context.md) | Rust backend, token budgets, paper trail tiers, CLI interface |
-| [Session Resume](./overhaul/CONTEXT_MANAGEMENT.md) | Scratchpad format, skill-based context loading |
-| [Skill Definition](./overhaul/SKILL.md) | Multi-pass reasoning skill specification |
-
-## Quick Reference
-
-### Architecture
+Dialectic is a desktop app for high-stakes thinking, powered by Claude Code with custom skills.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -23,52 +12,55 @@ The primary documentation lives in the `overhaul/` directory:
 ├─────────────────────────────────────────────────────────────────┤
 │  Embedded Terminal (xterm.js + portable-pty)                    │
 │  └── Claude Code                                                │
-│      └── dialectic-plugin (skills + hooks + CLI)                │
+│      └── dialectic-plugin (skills + hooks)                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Plugin Components
+## Skills
 
-| Component | Purpose |
-|-----------|---------|
-| `/dialectic` skill | Multi-pass reasoning (expand/compress/critique) |
-| `/brief` skill | Context management (resume/budget/compact/vault) |
-| `pre-submit` hook | Budget status injection every turn |
-| `stop` hook | Dialectic loop management |
-| `dialectic` CLI | JSON backend for skills and hooks |
+Skills are the core methodology, defined in `.claude-plugin/skills/`. Each skill file contains the full specification.
 
-### Key Files
+### Workflow Skills (Kanban Stages)
 
-```
-.claude-plugin/           # Claude Code plugin
-├── plugin.json           # Manifest
-├── commands/             # Skill definitions
-│   ├── dialectic.md
-│   └── brief.md
-└── hooks/
-    ├── pre-submit-hook.sh
-    └── stop-hook.sh
+| Skill | File | Purpose |
+|-------|------|---------|
+| `/spark` | [spark/SKILL.md](../.claude-plugin/skills/spark/SKILL.md) | Brainstorm, gather sources, establish framing |
+| `/shape` | [shape/SKILL.md](../.claude-plugin/skills/shape/SKILL.md) | Form positions on claims through probing |
+| `/stress-test` | [stress-test/SKILL.md](../.claude-plugin/skills/stress-test/SKILL.md) | Challenge assumptions, surface contradictions |
+| `/sharpen` | [sharpen/SKILL.md](../.claude-plugin/skills/sharpen/SKILL.md) | Crystallize thesis with confidence calibration |
 
-.claude/skills/           # Skill implementations
-├── dialectic/            # Multi-pass reasoning
-└── brief/                # Context management
+### Reasoning Skills
 
-packages/desktop/src-tauri/
-├── src/bin/dialectic.rs  # CLI binary
-├── src/context/          # Token budget management
-└── src/obsidian/         # Vault integration
-```
+| Skill | File | Purpose |
+|-------|------|---------|
+| `/dialectic` | [dialectic/SKILL.md](../.claude-plugin/skills/dialectic/SKILL.md) | Multi-pass reasoning (expand/compress/critique) |
+| `/strategy` | [strategy/SKILL.md](../.claude-plugin/skills/strategy/SKILL.md) | Structured N-pass strategic analysis |
+| `/pitfalls` | [pitfalls/SKILL.md](../.claude-plugin/skills/pitfalls/SKILL.md) | Cognitive bias detection and audit |
 
-## Legacy Documentation
+### Context Management
 
-The following documents describe earlier versions of the architecture:
+| Skill | File | Purpose |
+|-------|------|---------|
+| `/brief` | [brief/SKILL.md](../.claude-plugin/skills/brief/SKILL.md) | Session resume, budget, compression, vault search |
 
-| Document | Description |
-|----------|-------------|
-| [DIALECTIC.md](./DIALECTIC.md) | V3 dual-mode architecture (deprecated) |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | System design with Python backend (deprecated) |
-| [EXPERIMENTS.md](./EXPERIMENTS.md) | Validation experiments (still relevant) |
+## Experiments
 
-Note: The Python backend (`harness_lite.py`, `harness.py`, etc.) has been removed. The current architecture uses Claude Code with skills and hooks.
+See [EXPERIMENTS.md](./EXPERIMENTS.md) for validation experiments that informed the architecture:
 
-See the [root README](../README.md) for installation and quick start.
+- Multi-pass enables meta-level thinking (25% different conclusions)
+- Structured critique finds 9x more flaws than naive
+- Two-pass compression is 6x more efficient
+- Semantic markers extract 3x more insights per token
+
+## Philosophy
+
+**Copilot, not Agent.** Augments human judgment rather than replacing it.
+
+**Tension is Signal.** Contradictions are preserved, not papered over.
+
+**The Obvious Decisions Don't Need This.** Use for decisions where the frame itself might be wrong.
+
+## See Also
+
+- [Root README](../README.md) - Installation, quick start, project structure
+- [Plugin Manifest](../.claude-plugin/plugin.json) - Registered skills and hooks
