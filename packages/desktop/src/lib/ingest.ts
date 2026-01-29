@@ -35,8 +35,8 @@ function normalizeError(error: unknown, context: string): Error {
     // Network errors
     if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
       return new Error(
-        `Cannot connect to backend server. Please ensure the backend is running at ${API_BASE_URL}. ` +
-        `Start it with: cd backend && python server.py`
+        `Cannot connect to ingest server at ${API_BASE_URL}. ` +
+        `URL ingestion requires a running backend. Use text paste for local content.`
       )
     }
     // Pass through other errors with context
