@@ -42,9 +42,15 @@ Skills are the core methodology, defined in `.claude-plugin/skills/`. Each skill
 |-------|------|---------|
 | `/brief` | [brief/SKILL.md](../.claude-plugin/skills/brief/SKILL.md) | Session resume, budget, compression, vault search |
 
-## Experiments
+## Deep Dives
 
-See [EXPERIMENTS.md](./EXPERIMENTS.md) for validation experiments that informed the architecture:
+| Document | Description |
+|----------|-------------|
+| [DIALECTIC.md](./DIALECTIC.md) | Multi-pass reasoning methodology, validated findings, 3D confidence model |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture, desktop app structure, plugin design |
+| [EXPERIMENTS.md](./EXPERIMENTS.md) | Validation experiments that informed the design |
+
+## Key Findings (from Experiments)
 
 - Multi-pass enables meta-level thinking (25% different conclusions)
 - Structured critique finds 9x more flaws than naive
