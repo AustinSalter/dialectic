@@ -41,3 +41,6 @@ _archive/
 
 # Obsidian app config
 .obsidian/
+
+# Internal design docs
+docs/overhaul/

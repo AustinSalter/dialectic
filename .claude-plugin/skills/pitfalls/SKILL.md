@@ -1,7 +1,12 @@
+---
+name: pitfalls
+description: Audit thesis quality for cognitive biases. Detect confirmation bias, narrative fallacy, recency bias, and other pitfalls that degrade strategic reasoning.
+allowed-tools: Read, Grep, AskUserQuestion
+argument-hint: check | <pitfall-name> | stases | alpha
+---
+
 # Cognitive Pitfalls Pattern
 
-**Name:** cognitive-pitfalls
-**Aliases:** pattern, pitfalls, stases
 **Category:** Strategy Quality Assurance
 
 ## Overview

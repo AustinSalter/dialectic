@@ -30,9 +30,27 @@ Dialectic's reasoning methodology is packaged as a Claude Code plugin with three
 
 ### 1. Skills
 
+**Workflow Skills** (Kanban stages):
+
+| Skill | Purpose |
+|-------|---------|
+| `/spark` | Start analysis - brainstorm, gather sources, establish framing |
+| `/shape` | Form positions on claims through probing questions |
+| `/stress-test` | Challenge assumptions, surface contradictions |
+| `/sharpen` | Crystallize thesis with confidence calibration |
+
+**Reasoning Skills**:
+
 | Skill | Purpose |
 |-------|---------|
 | `/dialectic <question>` | Multi-pass reasoning with expansion, compression, critique cycles |
+| `/strategy <question>` | Structured N-pass strategic analysis |
+| `/pitfalls [check\|stases]` | Audit for cognitive biases (confirmation, narrative fallacy, etc.) |
+
+**Context Management**:
+
+| Skill | Purpose |
+|-------|---------|
 | `/brief resume <id>` | Resume session, inject context scratchpad |
 | `/brief budget` | Show token budget status |
 | `/brief compact` | Trigger context compression |
@@ -198,39 +216,25 @@ dialectic/
 │
 ├── .claude-plugin/             # Claude Code plugin
 │   ├── plugin.json             # Plugin manifest
-│   ├── commands/
-│   │   ├── dialectic.md        # /dialectic skill
-│   │   ├── brief.md            # /brief skill
-│   │   └── cancel-dialectic.md
+│   ├── skills/
+│   │   ├── dialectic/          # Multi-pass reasoning
+│   │   ├── spark/              # Workflow: ideation
+│   │   ├── shape/              # Workflow: position-forming
+│   │   ├── stress-test/        # Workflow: adversarial critique
+│   │   ├── sharpen/            # Workflow: thesis crystallization
+│   │   ├── strategy/           # Strategic analysis protocol
+│   │   ├── pitfalls/           # Cognitive bias detection
+│   │   └── brief/              # Context management
 │   └── hooks/
 │       ├── pre-submit-hook.sh  # Budget injection
 │       └── stop-hook.sh        # Loop management
 │
-├── .claude/skills/             # Skill implementations
-│   ├── dialectic/              # Multi-pass reasoning
-│   │   ├── SKILL.md
-│   │   ├── EXPANSION.md
-│   │   ├── COMPRESSION.md
-│   │   ├── CRITIQUE.md
-│   │   └── SYNTHESIS.md
-│   └── brief/                  # Context management
-│       ├── SKILL.md
-│       └── SCRATCHPAD.md
-│
-└── docs/
-    └── overhaul/
-        ├── design-doc-backend-context.md  # Full architecture
-        ├── CONTEXT_MANAGEMENT.md          # Session resume
-        └── ARCHITECTURE.md                # Desktop architecture
+└── docs/                       # Public documentation
 ```
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Architecture](./docs/overhaul/ARCHITECTURE.md) | Desktop app architecture, terminal integration |
-| [Context Management](./docs/overhaul/design-doc-backend-context.md) | Token budgets, paper trail tiers, CLI interface |
-| [Session Resume](./docs/overhaul/CONTEXT_MANAGEMENT.md) | Scratchpad format, skill-based loading |
+See skill files in `.claude-plugin/skills/` for detailed methodology documentation.
 
 ## Philosophy
 
