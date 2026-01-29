@@ -34,7 +34,6 @@ Skills are the core methodology, defined in `.claude-plugin/skills/`. Each skill
 | Skill | File | Purpose |
 |-------|------|---------|
 | `/dialectic` | [dialectic/SKILL.md](../.claude-plugin/skills/dialectic/SKILL.md) | Multi-pass reasoning (expand/compress/critique) |
-| `/strategy` | [strategy/SKILL.md](../.claude-plugin/skills/strategy/SKILL.md) | Structured N-pass strategic analysis |
 | `/pitfalls` | [pitfalls/SKILL.md](../.claude-plugin/skills/pitfalls/SKILL.md) | Cognitive bias detection and audit |
 
 ### Context Management

@@ -44,7 +44,6 @@ Dialectic's reasoning methodology is packaged as a Claude Code plugin with three
 | Skill | Purpose |
 |-------|---------|
 | `/dialectic <question>` | Multi-pass reasoning with expansion, compression, critique cycles |
-| `/strategy <question>` | Structured N-pass strategic analysis |
 | `/pitfalls [check\|stases]` | Audit for cognitive biases (confirmation, narrative fallacy, etc.) |
 
 **Context Management**:

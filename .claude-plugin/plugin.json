@@ -1,6 +1,6 @@
 {
   "name": "dialectic",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Multi-pass dialectic reasoning with collaborative workflow skills",
   "skills": [
     "dialectic",
@@ -10,8 +10,7 @@
     "shape",
     "stress-test",
     "sharpen",
-    "pitfalls",
-    "strategy"
+    "pitfalls"
   ],
   "hooks": ["stop", "pre_submit"]
 }
