@@ -1,129 +1,170 @@
 # Dialectic
 
-**Strategic intelligence workbench for high-stakes decision-making.**
+**A workbench for high-stakes thinking.**
 
-Dialectic is an agentic harness for strategists—multi-pass reasoning that enables meta-level thinking unavailable in single-pass AI.
+Dialectic is a desktop application that provides a focused UI for strategic reasoning — powered by Claude Code under the hood, with a methodology codified as skills and hooks.
 
-## Why Dialectic?
+## Architecture
 
-| What AI Does | What Strategists Need |
-|--------------|----------------------|
-| Retrieves similar content | Navigates causal relationships |
-| Single-pass response | Iterative refinement |
-| Answers questions | Challenges assumptions |
-| Forgets everything | Compounds learning |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  DIALECTIC DESKTOP (Tauri + React)                              │
+├─────────────────────────────────────────────────────────────────┤
+│  Vista UI — landscape backgrounds, calm space                   │
+│  Floating Windows — session conversations with embedded terminal│
+│  Kanban Board — workflow visualization (Spark → Ship)           │
+│  Snappable Rails — files, sessions, notes                       │
+├─────────────────────────────────────────────────────────────────┤
+│  Embedded Terminal (xterm.js + portable-pty)                    │
+│  └── Claude Code (user's own installation)                      │
+│      └── dialectic-plugin (skills + hooks + CLI)                │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-**Key Finding**: Multi-pass reasoning reaches different conclusions in 25% of cases—elevating reasoning from "company comparison" to "portfolio construction" level thinking.
+**You bring:** Claude Code (with your own API key or Max subscription)
+**We provide:** The thinking methodology, the UI, the workflow
 
-## Two Modes
+## The Plugin System
 
-Dialectic V3 offers two distinct workflows:
+Dialectic's reasoning methodology is packaged as a Claude Code plugin with three components:
 
-| Mode | Purpose | Duration | Engine |
-|------|---------|----------|--------|
-| **Decision** | Deep analysis on bounded problems | ~10 min | harness_lite (direct API) |
-| **Ideas** | Extended research and thesis development | Hours to days | SDK with session continuity |
+### 1. Skills
 
-- **Decision Mode**: Submit a problem with evidence, get a synthesis with conviction markers
-- **Ideas Mode**: Multi-day thesis development with full tool access and session persistence
+| Skill | Purpose |
+|-------|---------|
+| `/dialectic <question>` | Multi-pass reasoning with expansion, compression, critique cycles |
+| `/brief resume <id>` | Resume session, inject context scratchpad |
+| `/brief budget` | Show token budget status |
+| `/brief compact` | Trigger context compression |
+| `/brief vault <query>` | Search Obsidian vault |
+
+### 2. Hooks
+
+| Hook | Purpose |
+|------|---------|
+| `pre-submit` | Injects budget status at start of every turn |
+| `stop` | Manages dialectic loop continuation/termination |
+
+### 3. CLI (`dialectic`)
+
+A Rust CLI binary that skills and hooks shell out to:
+
+```bash
+dialectic session budget <id>     # Get budget status (JSON)
+dialectic session resume <id>     # Get resume context (JSON)
+dialectic vault search "<query>"  # Search Obsidian vault
+dialectic tokens count "<text>"   # Count tokens
+dialectic compress suggest <id>   # Get compression suggestions
+```
 
 ## Quick Start
 
 ### Prerequisites
-- Node.js 20+
-- Python 3.10+
-- Anthropic API key
 
-### Setup
+- [Claude Code](https://docs.anthropic.com/claude-code) installed
+- Node.js 20+ and Rust (for development)
+
+### Install
 
 ```bash
 # Clone
 git clone https://github.com/AustinSalter/dialectic.git
 cd dialectic
 
-# Frontend
+# Install dependencies
 npm install
 
-# Backend
-cd backend
-pip install -r requirements.txt
-echo "ANTHROPIC_API_KEY=your-key" > .env
+# Build the CLI
+cd packages/desktop/src-tauri
+cargo build --release --bin dialectic
+
+# Add CLI to path (or copy to /usr/local/bin)
+export PATH="$PATH:$(pwd)/target/release"
 ```
 
 ### Run
 
 ```bash
-# Terminal 1: Backend
-cd backend && python server_lite.py
+# Development mode
+npm run tauri dev
 
-# Terminal 2: Frontend
-npm run dev
+# Or build for release
+npm run tauri build
 ```
 
-Open http://localhost:5173
+### Install the Plugin
 
-## Architecture
+The dialectic-plugin provides skills and hooks for Claude Code:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                          DIALECTIC                              │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│   IDEAS MODE                         DECISION MODE              │
-│   (Extended Research)                (Bounded Analysis)         │
-│                                                                 │
-│   Source Material                    Question + Context         │
-│        ↓                                    ↓                   │
-│   ┌─────────┐                       ┌──────────────┐            │
-│   │ GATHER  │                       │ THESIS ROUTER│ ← Pass 0   │
-│   └────┬────┘                       └──────┬───────┘            │
-│        ↓                                   ↓                    │
-│   ┌─────────┐                       ┌──────────────┐            │
-│   │  SHAPE  │                       │ FIT│ADJ│NEW │            │
-│   └────┬────┘                       └──────┬───────┘            │
-│        ↓                                   ↓                    │
-│   ┌─────────┐                       ┌──────────────┐            │
-│   │CRITIQUE │ ← 6 techniques        │ N-PASS       │            │
-│   └────┬────┘                       │ HARNESS      │            │
-│        ↓                            └──────┬───────┘            │
-│   ┌──────────┐                             ↓                    │
-│   │SYNTHESIZE│                      Answer + Evidence           │
-│   └────┬─────┘                                                  │
-│        ↓                                                        │
-│   ThesisDocument ──────────→ MEMORY LAYER ←─────────────────────│
-│                                                                 │
-│   Markers: [INSIGHT] [EVIDENCE] [RISK] [COUNTER] [PATTERN]      │
-│   Termination: saturation | confidence ≥ 0.75 | max-cycles      │
-└─────────────────────────────────────────────────────────────────┘
+```bash
+# Option 1: Symlink to Claude Code plugins directory
+ln -s $(pwd)/.claude-plugin ~/.claude/plugins/dialectic
+
+# Option 2: Copy to plugins directory
+cp -r .claude-plugin ~/.claude/plugins/dialectic
 ```
 
-### Pass 0: Thesis Routing
+See the [dialectic-plugin repository](https://github.com/AustinSalter/dialectic-plugin) for standalone installation.
 
-Before analysis begins, queries are classified and relevant context loaded from memory:
+## Context Management
 
-| Route | When | Context Allocation |
-|-------|------|-------------------|
-| **FIT** | Matches existing thesis | 40% thesis, 30% data, 30% reasoning |
-| **ADJACENT** | Relates to known pattern | 30% pattern, 40% data, 30% reasoning |
-| **NET_NEW** | Fresh territory | 10% priors, 30% data, 60% reasoning |
+Dialectic manages context across sessions with a tiered paper trail system:
 
-### Validated Results
+```
+PAPER TRAIL TIERS
+────────────────────────────────────────────────────────────────
 
-| Finding | Result |
-|---------|--------|
-| Multi-pass vs single-pass | 25% different conclusions |
-| Multi-pass vs multi-agent (HBR cases) | 75% vs 50% correct |
-| Two-pass compression efficiency | 6x more efficient (83% coverage at 300 tokens) |
-| Structured vs naive critique | 9x more flaws found |
-| Semantic marker extraction | 3x insights per token |
-| SDK context accumulation | 14k vs 6k char synthesis |
+  TIER 1: HEAD                          ~500 tokens
+  Core thesis, confidence, triggers.    Always loaded.
 
-### Structured Critique
+  TIER 2: KEY_EVIDENCE                  ~1,500 tokens
+  Verbatim claims marked [KEY].         Always loaded.
 
-The critique pass uses six questioning techniques (validated to find 9x more flaws than naive "now critique this"):
+  TIER 3: RECENT                        ~3,000 tokens
+  Last 2-3 session traces.              Compress after 7 days.
+
+  TIER 4: HISTORICAL                    ~1,000 tokens
+  Older compressed summaries.           Compress after 30 days.
+
+  TIER 5: ARCHIVED                      0 tokens
+  Full logs on disk.                    Searchable only.
+```
+
+### Budget Thresholds
+
+| Usage | Status | Action |
+|-------|--------|--------|
+| < 70% | Normal | Continue normally |
+| 70-84% | Auto Compress | Tier 4 auto-compressed |
+| 85-94% | Warn User | Alert shown in pre-submit hook |
+| 95%+ | Force Compress | Mandatory compression triggered |
+
+The pre-submit hook shows budget at the start of every turn:
+```
+✓ BUDGET: 62% (44,640/72,000 tokens) [normal]
+⚠️ BUDGET: 87% (62,640/72,000 tokens) [warn_user]
+```
+
+## Multi-Pass Reasoning
+
+The `/dialectic` skill implements iterative reasoning:
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  EXPANSION  │────▶│ COMPRESSION │────▶│   CRITIQUE  │
+│  (diverge)  │     │  (converge) │     │  (decide)   │
+└─────────────┘     └─────────────┘     └──────┬──────┘
+                                               │
+                    ┌──────────────────────────┼──────┐
+                    ▼                          ▼      ▼
+              [CONTINUE]                 [CONCLUDE] [PIVOT]
+              loop back                  synthesis  reframe
+```
+
+### Critique Techniques
 
 1. **Inversion**: What if the opposite were true?
-2. **Second-Order**: What are the downstream effects?
+2. **Second-Order**: What are downstream effects?
 3. **Falsification**: What evidence would disprove this?
 4. **Base Rates**: What do historical priors suggest?
 5. **Incentive Audit**: Who benefits from this being believed?
@@ -133,59 +174,75 @@ The critique pass uses six questioning techniques (validated to find 9x more fla
 
 ```
 dialectic/
-├── packages/
-│   ├── web/              # React frontend (Vite + TypeScript + Tailwind)
-│   ├── shared/           # @dialectic/shared - Types & API client
-│   └── desktop/          # @dialectic/desktop - Tauri wrapper
-├── backend/
-│   ├── server_lite.py    # FastAPI server (Decision Mode)
-│   ├── harness_lite.py   # Direct API harness (fast, portable)
-│   ├── harness.py        # SDK harness (Ideas Mode, richer context)
-│   ├── scratchpad.py     # Anchored iterative compression state
-│   ├── thesis_router.py  # Pass 0: FIT/ADJ/NEW routing
-│   ├── memory.py         # Thesis, session, pattern persistence
-│   └── metrics.py        # Quality scoring for multi-pass output
-├── skills/               # Claude Code skills
-│   ├── workflow-stages/      # GATHER, SHAPE, CRITIQUE, SYNTHESIZE
-│   ├── cognitive-pitfalls/   # Detects reasoning degradation
-│   ├── reasoning-harness/    # Multi-pass prompts
-│   └── thesis-management/    # FIT/ADJ/NEW routing
-├── memories/             # Persistent memory layer
-│   ├── theses/           # Persistent beliefs (loaded by thesis_router)
-│   ├── sessions/         # Past analyses (context for continuity)
-│   └── patterns/         # Reusable frameworks (for ADJACENT queries)
+├── packages/desktop/
+│   ├── src/                    # React frontend
+│   │   ├── components/         # UI components
+│   │   │   ├── Terminal/       # xterm.js integration
+│   │   │   ├── Board/          # Kanban board
+│   │   │   └── Window/         # Floating windows
+│   │   └── hooks/
+│   │       ├── useTerminal.ts  # PTY management
+│   │       └── useBudgetMonitor.ts  # Budget alerts
+│   │
+│   └── src-tauri/
+│       ├── src/
+│       │   ├── main.rs         # Tauri entry
+│       │   ├── terminal.rs     # PTY management
+│       │   ├── session.rs      # Session persistence
+│       │   ├── watcher.rs      # File watching + budget alerts
+│       │   ├── context/        # Token budget management
+│       │   ├── obsidian/       # Vault integration
+│       │   └── bin/
+│       │       └── dialectic.rs  # CLI binary
+│       └── Cargo.toml
+│
+├── .claude-plugin/             # Claude Code plugin
+│   ├── plugin.json             # Plugin manifest
+│   ├── commands/
+│   │   ├── dialectic.md        # /dialectic skill
+│   │   ├── brief.md            # /brief skill
+│   │   └── cancel-dialectic.md
+│   └── hooks/
+│       ├── pre-submit-hook.sh  # Budget injection
+│       └── stop-hook.sh        # Loop management
+│
+├── .claude/skills/             # Skill implementations
+│   ├── dialectic/              # Multi-pass reasoning
+│   │   ├── SKILL.md
+│   │   ├── EXPANSION.md
+│   │   ├── COMPRESSION.md
+│   │   ├── CRITIQUE.md
+│   │   └── SYNTHESIS.md
+│   └── brief/                  # Context management
+│       ├── SKILL.md
+│       └── SCRATCHPAD.md
+│
 └── docs/
-    ├── DIALECTIC.md      # Core concepts & V3 architecture
-    ├── ARCHITECTURE.md   # System design & data flow
-    └── EXPERIMENTS.md    # Validation experiment results
+    └── overhaul/
+        ├── design-doc-backend-context.md  # Full architecture
+        ├── CONTEXT_MANAGEMENT.md          # Session resume
+        └── ARCHITECTURE.md                # Desktop architecture
 ```
-
-### Backend Components
-
-| File | Purpose | Mode |
-|------|---------|------|
-| `harness_lite.py` | Direct Anthropic API, no SDK dependency | Decision |
-| `harness.py` | Claude Agent SDK with session continuity | Ideas |
-| `scratchpad.py` | Key evidence preserved across cycles | Both |
-| `thesis_router.py` | Pass 0: matches queries to existing theses/patterns | Both |
-| `memory.py` | File-based thesis, session, pattern persistence | Both |
-| `metrics.py` | Quality analysis (insight density, causal chains) | Both |
 
 ## Documentation
 
-- [DIALECTIC.md](./docs/DIALECTIC.md) — Core concepts, V3 dual-mode architecture, session segments
-- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) — System design, data flow, backend/frontend architecture
-- [EXPERIMENTS.md](./docs/EXPERIMENTS.md) — Validation experiments (EXP-004 through EXP-019)
+| Document | Description |
+|----------|-------------|
+| [Architecture](./docs/overhaul/ARCHITECTURE.md) | Desktop app architecture, terminal integration |
+| [Context Management](./docs/overhaul/design-doc-backend-context.md) | Token budgets, paper trail tiers, CLI interface |
+| [Session Resume](./docs/overhaul/CONTEXT_MANAGEMENT.md) | Scratchpad format, skill-based loading |
 
 ## Philosophy
 
-**Copilot, not Agent.** Augments human judgment rather than replacing it. Strategic decisions operate in domains of irreducible uncertainty.
+**Copilot, not Agent.** Dialectic augments your judgment. It surfaces what you might miss, challenges what you assume, structures what you conclude. It does not decide for you.
 
-**Prioritize over Predict.** The right question isn't "what will happen?" but "what should we do first given constraints?"
+**Tension is Signal.** Unresolved contradictions aren't failures. They're the interesting parts. The system preserves them rather than papering over them.
 
-**Dialogue as First Principle.** User messages are sacred. They represent human thinking and should never be compressed away.
+**The Obvious Decisions Don't Need This.** Use Dialectic for decisions where the frame itself might be wrong — where you need to be argued with, not agreed with.
 
-**The Obvious Decisions Don't Need AI.** The non-obvious ones—where the frame itself might be wrong—that's where this earns its keep.
+## Related Repositories
+
+- [dialectic-plugin](https://github.com/AustinSalter/dialectic-plugin) — Standalone Claude Code plugin (skills + hooks)
 
 ## License
 
