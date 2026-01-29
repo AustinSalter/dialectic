@@ -25,7 +25,7 @@ const STATES: SessionState[] = ['backlog', 'exploring', 'tensions', 'synthesizin
 interface BoardViewProps {
   sessions: Session[]
   onMoveSession: (sessionId: string, newState: SessionState) => void
-  onOpenSession?: (sessionId: string) => void
+  onOpenSession?: (sessionId: string, state: SessionState) => void
   onDeleteSession?: (sessionId: string) => void
 }
 

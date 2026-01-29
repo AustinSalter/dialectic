@@ -75,6 +75,24 @@ const demoDocuments: Record<string, DocumentContent> = {
   },
 }
 
+// Map session state to workflow skill command
+function getSkillForState(state: SessionState): string | null {
+  switch (state) {
+    case 'backlog':
+      return '/gather'
+    case 'exploring':
+      return '/shape'
+    case 'tensions':
+      return '/stress-test'
+    case 'synthesizing':
+      return '/synthesize'
+    case 'formed':
+      return null // Completed, no skill needed
+    default:
+      return null
+  }
+}
+
 // Session window state
 interface SessionWindowState {
   zIndex: number
@@ -83,6 +101,7 @@ interface SessionWindowState {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>
   workingDir: string | null    // Terminal working directory
   terminalActive: boolean      // Whether this is a terminal session
+  initialCommand: string | null // Command to inject on terminal start
 }
 
 // Z-index management - start above empty state (5) and window base (50)
@@ -355,7 +374,10 @@ function App() {
   }, [])
 
   // Open a session in a floating window
-  const handleOpenSession = useCallback((sessionId: string) => {
+  // If state is provided (from Kanban), inject the appropriate workflow skill
+  const handleOpenSession = useCallback((sessionId: string, state?: SessionState) => {
+    const session = sessions.find((s) => s.id === sessionId)
+
     setOpenWindows((prev) => {
       // If already open, just focus it
       if (prev.has(sessionId)) {
@@ -364,6 +386,21 @@ function App() {
         updated.set(sessionId, { ...existing, zIndex: nextZIndex++ })
         return updated
       }
+
+      // Check if this is a terminal session (summary is a path)
+      const isTerminalSession = session?.summary?.startsWith('/')
+      const workingDir = isTerminalSession ? session.summary : null
+
+      // Build initial command if state provided and terminal session
+      let initialCommand: string | null = null
+      if (isTerminalSession && state) {
+        const skill = getSkillForState(state)
+        if (skill) {
+          // Inject skill command with session ID
+          initialCommand = `${skill} ${sessionId}`
+        }
+      }
+
       // Open new window
       const updated = new Map(prev)
       updated.set(sessionId, {
@@ -371,13 +408,14 @@ function App() {
         isFullscreen: false,
         isThinking: false,
         messages: [],
-        workingDir: null,
-        terminalActive: false,
+        workingDir: workingDir ?? null,
+        terminalActive: isTerminalSession ?? false,
+        initialCommand,
       })
       return updated
     })
     setActiveWindowId(sessionId)
-  }, [])
+  }, [sessions])
 
   // Close a session window
   const handleCloseSession = useCallback((sessionId: string) => {
@@ -525,6 +563,7 @@ To complete this integration:
         messages: [],
         workingDir: path,
         terminalActive: true,
+        initialCommand: null, // New sessions don't auto-inject a skill
       })
       return updated
     })
@@ -661,6 +700,7 @@ To complete this integration:
                 sessionId={sessionId}
                 workingDir={windowState.workingDir}
                 onClose={() => handleCloseSession(sessionId)}
+                initialCommand={windowState.initialCommand ?? undefined}
               />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>

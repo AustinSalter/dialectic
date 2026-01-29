@@ -25,7 +25,7 @@ const stateLabels: Record<SessionState, { label: string; description: string }> 
 interface ColumnProps {
   state: SessionState
   sessions: Session[]
-  onOpenSession?: (sessionId: string) => void
+  onOpenSession?: (sessionId: string, state: SessionState) => void
   onDeleteSession?: (sessionId: string) => void
 }
 
@@ -56,7 +56,7 @@ export function Column({ state, sessions, onOpenSession, onDeleteSession }: Colu
               <SessionCard
                 key={session.id}
                 session={session}
-                onClick={() => onOpenSession?.(session.id)}
+                onClick={() => onOpenSession?.(session.id, state)}
                 onDelete={onDeleteSession}
               />
             ))
