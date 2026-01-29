@@ -1,7 +1,15 @@
 {
   "name": "dialectic",
-  "version": "1.2.0",
-  "description": "Multi-pass dialectic reasoning with context management",
-  "skills": ["dialectic", "cancel-dialectic", "brief"],
+  "version": "1.3.0",
+  "description": "Multi-pass dialectic reasoning with workflow stage skills",
+  "skills": [
+    "dialectic",
+    "cancel-dialectic",
+    "brief",
+    "gather",
+    "shape",
+    "stress-test",
+    "synthesize"
+  ],
   "hooks": ["stop", "pre_submit"]
 }
