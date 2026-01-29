@@ -75,19 +75,19 @@ const demoDocuments: Record<string, DocumentContent> = {
   },
 }
 
-// Map session state to workflow skill command
+// Map session state to collaborative workflow skill
 function getSkillForState(state: SessionState): string | null {
   switch (state) {
     case 'backlog':
-      return '/gather'
+      return '/spark'       // Brainstorm, gather sources, initial framing
     case 'exploring':
-      return '/shape'
+      return '/shape'       // Form positions on claims through probing
     case 'tensions':
-      return '/stress-test'
+      return '/stress-test' // Challenge assumptions, surface contradictions
     case 'synthesizing':
-      return '/synthesize'
+      return '/sharpen'     // Crystallize thesis with calibrated confidence
     case 'formed':
-      return null // Completed, no skill needed
+      return null           // Completed, no skill needed
     default:
       return null
   }
