@@ -131,8 +131,24 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
         })
         .map_err(|e| TerminalError::Pty(e.to_string()))?;
 
+    // Allowed commands -- only shells and known tools
+    const ALLOWED_COMMANDS: &[&str] = &[
+        "bash", "zsh", "sh", "fish",
+        "/bin/bash", "/bin/zsh", "/bin/sh", "/usr/bin/fish",
+        "/usr/local/bin/bash", "/usr/local/bin/zsh", "/usr/local/bin/fish",
+        "claude",
+    ];
+
     // Build command - default to user's shell
     let mut cmd = if let Some(command) = config.command {
+        // Validate command against allowlist
+        let cmd_name = std::path::Path::new(&command)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if !ALLOWED_COMMANDS.contains(&command.as_str()) && !ALLOWED_COMMANDS.contains(&cmd_name.as_str()) {
+            return Err(TerminalError::Pty(format!("Command '{}' is not in the allowed list", cmd_name)));
+        }
         let mut cmd = CommandBuilder::new(&command);
         if let Some(args) = config.args {
             cmd.args(args);
@@ -144,8 +160,11 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
         CommandBuilder::new(shell)
     };
 
-    // Set working directory
-    cmd.cwd(&config.working_dir);
+    // Set working directory (canonicalize to prevent directory traversal)
+    let working_dir = std::path::PathBuf::from(&config.working_dir)
+        .canonicalize()
+        .map_err(|e| TerminalError::Pty(format!("Invalid working directory '{}': {}", config.working_dir, e)))?;
+    cmd.cwd(&working_dir);
 
     // Spawn child process
     let child = pair

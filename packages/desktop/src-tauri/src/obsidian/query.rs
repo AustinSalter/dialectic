@@ -186,7 +186,15 @@ pub fn get_note_content(path: &str, max_tokens: u32) -> Result<NoteContent, Obsi
         .ok_or_else(|| ObsidianError::NoteNotFound(path.to_string()))?;
 
     let full_path = index.vault_path.join(path);
-    let content = fs::read_to_string(&full_path)?;
+    // Validate the resolved path stays within the vault
+    let canonical_vault = index.vault_path.canonicalize()
+        .map_err(|e| ObsidianError::Io(e))?;
+    let canonical_path = full_path.canonicalize()
+        .map_err(|e| ObsidianError::Io(e))?;
+    if !canonical_path.starts_with(&canonical_vault) {
+        return Err(ObsidianError::InvalidPath("Path escapes vault directory".to_string()));
+    }
+    let content = fs::read_to_string(&canonical_path)?;
 
     // Estimate tokens
     let token_count = (content.len() as f64 / 4.0).ceil() as u32;
@@ -195,8 +203,13 @@ pub fn get_note_content(path: &str, max_tokens: u32) -> Result<NoteContent, Obsi
         // Truncate to approximately max_tokens
         let char_limit = (max_tokens as usize) * 4;
         let truncated_content = if content.len() > char_limit {
+            // Find a safe UTF-8 boundary for truncation
+            let mut safe_limit = char_limit.min(content.len());
+            while safe_limit > 0 && !content.is_char_boundary(safe_limit) {
+                safe_limit -= 1;
+            }
             format!("{}...\n\n[TRUNCATED: {} tokens remaining]",
-                &content[..char_limit],
+                &content[..safe_limit],
                 token_count - max_tokens)
         } else {
             content.clone()

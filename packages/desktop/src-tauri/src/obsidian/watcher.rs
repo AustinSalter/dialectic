@@ -98,7 +98,20 @@ pub fn get_watched_path() -> Option<PathBuf> {
 
 #[tauri::command]
 pub fn obsidian_start_watching(app: AppHandle, vault_path: String) -> Result<(), ObsidianError> {
-    start_watching(app, PathBuf::from(vault_path))
+    // Canonicalize and validate path matches the configured vault
+    let canonical_path = PathBuf::from(&vault_path).canonicalize()
+        .map_err(|_| ObsidianError::InvalidPath("Cannot resolve vault path".to_string()))?;
+
+    // Verify this is the currently configured vault
+    if let Some(configured_vault) = super::indexer::get_vault_index().ok().map(|i| i.vault_path) {
+        let configured_canonical = configured_vault.canonicalize()
+            .map_err(|_| ObsidianError::InvalidPath("Cannot resolve configured vault path".to_string()))?;
+        if canonical_path != configured_canonical {
+            return Err(ObsidianError::InvalidPath("Path does not match configured vault".to_string()));
+        }
+    }
+
+    start_watching(app, canonical_path)
 }
 
 #[tauri::command]

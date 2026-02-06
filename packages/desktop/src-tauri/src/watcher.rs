@@ -115,7 +115,10 @@ pub fn watch_session(app: AppHandle, session_id: String, session_dir: String) ->
         return Ok(());
     }
 
-    let session_json_path = PathBuf::from(&session_dir).join("session.json");
+    // Canonicalize the session directory to prevent traversal
+    let canonical_dir = PathBuf::from(&session_dir).canonicalize()
+        .map_err(|e| WatcherError::Io(e))?;
+    let session_json_path = canonical_dir.join("session.json");
     let app_clone = app.clone();
     let session_id_clone = session_id.clone();
 

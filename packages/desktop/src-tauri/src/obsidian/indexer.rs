@@ -200,7 +200,11 @@ fn extract_summary(content: &str) -> String {
         .map(|p| {
             // Limit to ~200 chars
             if p.len() > 200 {
-                format!("{}...", &p[..200])
+                let mut end = 200;
+                while end > 0 && !p.is_char_boundary(end) {
+                    end -= 1;
+                }
+                format!("{}...", &p[..end])
             } else {
                 p.to_string()
             }
@@ -271,22 +275,33 @@ pub fn configure_vault(vault_path: &str) -> Result<(), ObsidianError> {
     let path = PathBuf::from(vault_path);
 
     if !path.exists() {
-        return Err(ObsidianError::InvalidPath(vault_path.to_string()));
+        return Err(ObsidianError::InvalidPath("Path does not exist".to_string()));
     }
 
-    if !path.is_dir() {
+    // Canonicalize to resolve symlinks and prevent traversal
+    let canonical_path = path.canonicalize()
+        .map_err(|_| ObsidianError::InvalidPath("Cannot resolve path".to_string()))?;
+
+    if !canonical_path.is_dir() {
         return Err(ObsidianError::InvalidPath("Path is not a directory".to_string()));
     }
 
+    // Ensure path is under the user's home directory
+    if let Some(home) = dirs::home_dir() {
+        if !canonical_path.starts_with(&home) {
+            return Err(ObsidianError::InvalidPath("Vault must be within home directory".to_string()));
+        }
+    }
+
     // Check for .obsidian folder (indicates this is an Obsidian vault)
-    let obsidian_dir = path.join(".obsidian");
+    let obsidian_dir = canonical_path.join(".obsidian");
     if !obsidian_dir.exists() {
         return Err(ObsidianError::InvalidPath("Not an Obsidian vault (no .obsidian folder)".to_string()));
     }
 
     // Initialize empty index
     let mut index = VAULT_INDEX.write();
-    *index = Some(VaultIndex::new(path));
+    *index = Some(VaultIndex::new(canonical_path));
 
     Ok(())
 }
