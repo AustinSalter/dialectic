@@ -6,6 +6,7 @@ use tauri::{AppHandle, Manager};
 use thiserror::Error;
 use ulid::Ulid;
 
+use crate::cdg::{CdgEdge, CdgSnapshot};
 use crate::context::{ContextBudget, SessionClassification, PaperTrail};
 
 #[derive(Error, Debug)]
@@ -18,8 +19,37 @@ pub enum SessionError {
     NotFound(String),
     #[error("Invalid path: {0}")]
     InvalidPath(String),
+    #[error("Invalid session ID")]
+    InvalidSessionId,
+    #[error("Path escapes allowed directory")]
+    PathEscape,
     #[error("App data directory not found")]
     NoAppDataDir,
+}
+
+/// Validate that a session ID contains only safe characters (alphanumeric, dash, underscore).
+/// Rejects any path traversal attempts (/, \, ..).
+pub fn validate_session_id(session_id: &str) -> Result<(), SessionError> {
+    if session_id.is_empty() {
+        return Err(SessionError::InvalidSessionId);
+    }
+    if session_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        Ok(())
+    } else {
+        Err(SessionError::InvalidSessionId)
+    }
+}
+
+/// Validate that a resolved path is contained within the expected base directory.
+/// Canonicalizes both paths and checks that the candidate starts with the base.
+pub fn validate_path_containment(base: &std::path::Path, candidate: &std::path::Path) -> Result<PathBuf, SessionError> {
+    let canonical_base = base.canonicalize().map_err(|_| SessionError::InvalidPath(base.display().to_string()))?;
+    let canonical_candidate = candidate.canonicalize().map_err(|_| SessionError::InvalidPath(candidate.display().to_string()))?;
+    if canonical_candidate.starts_with(&canonical_base) {
+        Ok(canonical_candidate)
+    } else {
+        Err(SessionError::PathEscape)
+    }
 }
 
 impl Serialize for SessionError {
@@ -179,6 +209,12 @@ pub struct Session {
     #[serde(default)]
     pub reference_docs: Vec<SessionReferenceDoc>,
 
+    // Claim Dependency Graph
+    #[serde(default)]
+    pub cdg_edges: Vec<CdgEdge>,
+    #[serde(default)]
+    pub cdg_snapshots: Vec<CdgSnapshot>,
+
     // Optional metadata
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
@@ -221,6 +257,7 @@ pub fn get_session_dir_cli(session_id: &str) -> Result<PathBuf, SessionError> {
     let base = get_app_data_dir_cli()?;
     // Strip prefix if present to normalize
     let normalized_id = session_id.trim_start_matches("sess_");
+    validate_session_id(normalized_id)?;
     Ok(base.join("sessions").join(format!("sess_{}", normalized_id)))
 }
 
@@ -237,6 +274,15 @@ pub fn load_session_cli(session_id: &str) -> Result<Session, SessionError> {
     let session: Session = serde_json::from_str(&content)?;
 
     Ok(session)
+}
+
+/// Save session to disk for CLI use
+pub fn save_session_cli(session: &Session) -> Result<(), SessionError> {
+    let session_dir = get_session_dir_cli(&session.id)?;
+    let session_path = session_dir.join("session.json");
+    let content = serde_json::to_string_pretty(session)?;
+    fs::write(&session_path, content)?;
+    Ok(())
 }
 
 /// Shared helper: list sessions from a directory
@@ -318,6 +364,7 @@ pub fn init_app_data_dir(app: &AppHandle) -> Result<(), SessionError> {
 
 /// Get session directory path
 fn get_session_dir(app: &AppHandle, session_id: &str) -> Result<PathBuf, SessionError> {
+    validate_session_id(session_id)?;
     let base = get_app_data_path(app)?;
     Ok(base.join("sessions").join(format!("sess_{}", session_id)))
 }
@@ -352,12 +399,13 @@ pub fn create_session(app: AppHandle, input: CreateSessionInput) -> Result<Sessi
     let is_project_local = input.working_dir.is_some();
     let working_dir = match input.working_dir {
         Some(dir) => {
-            // Validate directory exists
-            let path = PathBuf::from(&dir);
-            if !path.exists() {
+            // Validate directory exists and canonicalize
+            let path = PathBuf::from(&dir).canonicalize()
+                .map_err(|_| SessionError::InvalidPath(dir.clone()))?;
+            if !path.is_dir() {
                 return Err(SessionError::InvalidPath(dir));
             }
-            dir
+            path.to_string_lossy().to_string()
         }
         None => {
             // Use app data directory
@@ -385,6 +433,8 @@ pub fn create_session(app: AppHandle, input: CreateSessionInput) -> Result<Sessi
         context_budget: Some(ContextBudget::new(SessionClassification::NetNew)),
         paper_trail: Some(PaperTrail::default()),
         reference_docs: Vec::new(),
+        cdg_edges: Vec::new(),
+        cdg_snapshots: Vec::new(),
         category: input.category,
         summary: input.summary,
     };
