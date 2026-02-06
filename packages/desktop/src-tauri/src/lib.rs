@@ -1,6 +1,7 @@
 // Dialectic Library
 // Exports core modules for use by both Tauri app and CLI binary
 
+pub mod cdg;
 pub mod context;
 pub mod obsidian;
 pub mod session;
@@ -25,4 +26,10 @@ pub use obsidian::indexer::{NoteIndex, VaultIndex, ObsidianError, IndexStats, co
 pub use session::{
     Session, SessionStatus, SessionMode, SessionError,
     get_app_data_dir_cli, get_session_dir_cli, load_session_cli, list_sessions_cli,
+    save_session_cli,
+};
+
+pub use cdg::{
+    EdgeType, ClaimStratum, ResolutionStatus, CdgEdge, CdgMetrics, CdgSnapshot, PassDiff,
+    compute_strata, compute_metrics, find_orphans, compute_pass_diff,
 };

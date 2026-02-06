@@ -13,9 +13,10 @@ const ESTIMATED_ARCHIVE_SAVINGS_PER_SESSION: u32 = 300;
 /// Target budget percentage after compression (below auto_compress threshold)
 const COMPRESSION_TARGET_PCT: f64 = 0.65;
 use serde::Serialize;
+use chrono::Utc;
 use dialectic_lib::{
     // Session
-    SessionStatus, load_session_cli, list_sessions_cli,
+    SessionStatus, load_session_cli, list_sessions_cli, save_session_cli,
     // Context
     BudgetStatus, ThresholdStatus, WORKING_BUDGET,
     check_compression_triggers, CompressionTrigger,
@@ -23,6 +24,9 @@ use dialectic_lib::{
     count_tokens,
     // Obsidian
     configure_vault, index_vault, query_notes, get_note_content,
+    // CDG
+    EdgeType, ResolutionStatus, CdgEdge, CdgSnapshot,
+    compute_strata, compute_metrics, find_orphans, compute_pass_diff,
 };
 
 #[derive(Parser)]
@@ -54,6 +58,11 @@ enum Commands {
     Compress {
         #[command(subcommand)]
         action: CompressAction,
+    },
+    /// Claim Dependency Graph commands
+    Cdg {
+        #[command(subcommand)]
+        action: CdgAction,
     },
 }
 
@@ -115,6 +124,69 @@ enum CompressAction {
     Suggest {
         /// Session ID (without sess_ prefix)
         session_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CdgAction {
+    /// Compute and display all CDG metrics
+    Metrics {
+        /// Session ID
+        session_id: String,
+    },
+    /// Add an edge between two claims
+    AddEdge {
+        /// Session ID
+        session_id: String,
+        /// Source claim ID
+        #[arg(long)]
+        source: String,
+        /// Target claim ID
+        #[arg(long)]
+        target: String,
+        /// Edge type: support, require, tension, derive, qualify
+        #[arg(long, name = "type")]
+        edge_type: String,
+        /// Edge weight (0.0-1.0)
+        #[arg(long, default_value = "1.0")]
+        weight: f32,
+        /// Resolution status for tension edges: unresolved, resolved, accepted
+        #[arg(long)]
+        resolution: Option<String>,
+    },
+    /// Resolve or accept a tension edge
+    Resolve {
+        /// Session ID
+        session_id: String,
+        /// Edge index in cdg_edges array
+        #[arg(long)]
+        edge_index: usize,
+        /// Resolution status: resolved or accepted
+        #[arg(long)]
+        status: String,
+    },
+    /// List orphan claims (degree 0)
+    Orphans {
+        /// Session ID
+        session_id: String,
+    },
+    /// Compute and display strata for all claims
+    Strata {
+        /// Session ID
+        session_id: String,
+    },
+    /// Compare current metrics vs last snapshot
+    Diff {
+        /// Session ID
+        session_id: String,
+    },
+    /// Take a snapshot of current metrics (for later diff)
+    Snapshot {
+        /// Session ID
+        session_id: String,
+        /// Pass ID to label this snapshot
+        #[arg(long)]
+        pass_id: String,
     },
 }
 
@@ -207,6 +279,7 @@ fn main() {
         Commands::Vault { action } => handle_vault(action),
         Commands::Tokens { action } => handle_tokens(action),
         Commands::Compress { action } => handle_compress(action),
+        Commands::Cdg { action } => handle_cdg(action),
     };
 
     match result {
@@ -403,6 +476,186 @@ fn handle_compress(action: CompressAction) -> Result<String, Box<dyn std::error:
             };
 
             Ok(serde_json::to_string(&output)?)
+        }
+    }
+}
+
+fn handle_cdg(action: CdgAction) -> Result<String, Box<dyn std::error::Error>> {
+    match action {
+        CdgAction::Metrics { session_id } => {
+            let session = load_session_cli(&session_id)?;
+            let metrics = compute_metrics(&session.claims, &session.cdg_edges);
+            Ok(serde_json::to_string(&metrics)?)
+        }
+
+        CdgAction::AddEdge {
+            session_id,
+            source,
+            target,
+            edge_type,
+            weight,
+            resolution,
+        } => {
+            let mut session = load_session_cli(&session_id)?;
+
+            // Validate claim IDs exist
+            let claim_ids: std::collections::HashSet<&str> =
+                session.claims.iter().map(|c| c.id.as_str()).collect();
+            if !claim_ids.contains(source.as_str()) {
+                return Err(format!("Source claim '{}' not found in session", source).into());
+            }
+            if !claim_ids.contains(target.as_str()) {
+                return Err(format!("Target claim '{}' not found in session", target).into());
+            }
+
+            let parsed_type = match edge_type.to_lowercase().as_str() {
+                "support" => EdgeType::Support,
+                "require" => EdgeType::Require,
+                "tension" => EdgeType::Tension,
+                "derive" => EdgeType::Derive,
+                "qualify" => EdgeType::Qualify,
+                other => return Err(format!("Unknown edge type: '{}'. Use: support, require, tension, derive, qualify", other).into()),
+            };
+
+            let parsed_resolution = match &resolution {
+                Some(r) => match r.to_lowercase().as_str() {
+                    "unresolved" => Some(ResolutionStatus::Unresolved),
+                    "resolved" => Some(ResolutionStatus::Resolved),
+                    "accepted" => Some(ResolutionStatus::Accepted),
+                    other => return Err(format!("Unknown resolution: '{}'. Use: unresolved, resolved, accepted", other).into()),
+                },
+                None => {
+                    if parsed_type == EdgeType::Tension {
+                        Some(ResolutionStatus::Unresolved)
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            let clamped_weight = weight.clamp(0.0, 1.0);
+
+            let edge = CdgEdge {
+                source_claim_id: source,
+                target_claim_id: target,
+                edge_type: parsed_type,
+                weight: clamped_weight,
+                resolution: parsed_resolution,
+                created_at: Utc::now(),
+            };
+
+            session.cdg_edges.push(edge);
+            session.updated = Utc::now();
+            save_session_cli(&session)?;
+
+            Ok(serde_json::to_string(&serde_json::json!({
+                "status": "added",
+                "edge_count": session.cdg_edges.len()
+            }))?)
+        }
+
+        CdgAction::Resolve {
+            session_id,
+            edge_index,
+            status,
+        } => {
+            let mut session = load_session_cli(&session_id)?;
+
+            if edge_index >= session.cdg_edges.len() {
+                return Err(format!(
+                    "Edge index {} out of range (session has {} edges)",
+                    edge_index,
+                    session.cdg_edges.len()
+                )
+                .into());
+            }
+
+            let edge = &session.cdg_edges[edge_index];
+            if edge.edge_type != EdgeType::Tension {
+                return Err(format!(
+                    "Edge at index {} is {:?}, not TENSION. Only tension edges can be resolved.",
+                    edge_index, edge.edge_type
+                )
+                .into());
+            }
+
+            let parsed_status = match status.to_lowercase().as_str() {
+                "resolved" => ResolutionStatus::Resolved,
+                "accepted" => ResolutionStatus::Accepted,
+                other => {
+                    return Err(
+                        format!("Unknown status: '{}'. Use: resolved, accepted", other).into(),
+                    )
+                }
+            };
+
+            session.cdg_edges[edge_index].resolution = Some(parsed_status);
+            session.updated = Utc::now();
+            save_session_cli(&session)?;
+
+            Ok(serde_json::to_string(&serde_json::json!({
+                "status": "resolved",
+                "edge_index": edge_index
+            }))?)
+        }
+
+        CdgAction::Orphans { session_id } => {
+            let session = load_session_cli(&session_id)?;
+            let orphans = find_orphans(&session.claims, &session.cdg_edges);
+            Ok(serde_json::to_string(&serde_json::json!({
+                "orphans": orphans,
+                "count": orphans.len(),
+                "total_claims": session.claims.len()
+            }))?)
+        }
+
+        CdgAction::Strata { session_id } => {
+            let session = load_session_cli(&session_id)?;
+            let strata = compute_strata(&session.claims, &session.cdg_edges);
+            Ok(serde_json::to_string(&strata)?)
+        }
+
+        CdgAction::Diff { session_id } => {
+            let session = load_session_cli(&session_id)?;
+            let current = compute_metrics(&session.claims, &session.cdg_edges);
+
+            match session.cdg_snapshots.last() {
+                Some(snapshot) => {
+                    let diff = compute_pass_diff(&current, snapshot);
+                    Ok(serde_json::to_string(&diff)?)
+                }
+                None => {
+                    Ok(serde_json::to_string(&serde_json::json!({
+                        "error": "No previous snapshot. Use 'cdg snapshot' to create one.",
+                        "current": current
+                    }))?)
+                }
+            }
+        }
+
+        CdgAction::Snapshot {
+            session_id,
+            pass_id,
+        } => {
+            let mut session = load_session_cli(&session_id)?;
+            let metrics = compute_metrics(&session.claims, &session.cdg_edges);
+
+            let snapshot = CdgSnapshot {
+                pass_id: pass_id.clone(),
+                metrics: metrics.clone(),
+                timestamp: Utc::now(),
+            };
+
+            session.cdg_snapshots.push(snapshot);
+            session.updated = Utc::now();
+            save_session_cli(&session)?;
+
+            Ok(serde_json::to_string(&serde_json::json!({
+                "status": "snapshot_created",
+                "pass_id": pass_id,
+                "metrics": metrics,
+                "snapshot_count": session.cdg_snapshots.len()
+            }))?)
         }
     }
 }

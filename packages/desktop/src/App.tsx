@@ -14,65 +14,39 @@ import { BoardView } from './components/Board'
 import { KeyboardHints } from './components/KeyboardHints'
 import { FloatingWindow } from './components/Window'
 import { Conversation, Entry, InputArea, ThinkingIndicator } from './components/Conversation'
-import { LeftRail, RightRail } from './components/Rails'
-import { GlobalInputBar } from './components/GlobalInput'
+import { LeftRail, RightRail, type FileNode } from './components/Rails'
 import { NotesPanel, type Note } from './components/Notes'
 import { DocumentViewer, type DocumentContent } from './components/DocumentViewer'
 import type { Session, SessionState, SessionCategory } from './components/Kanban'
 import { loadSessions, saveSessions, createSession } from './lib/storage'
 import { pickFolder } from './lib/folderPicker'
 
-// Demo document content
-const demoDocuments: Record<string, DocumentContent> = {
-  '/research/wang-letters.md': {
-    id: 'wang-letters',
-    title: "Wang's Hard Tech Thesis",
-    filename: 'wang-letters.md',
-    sections: [
-      {
-        type: 'summary',
-        marginNote: 'Key claim',
-        content: 'Wang\'s central thesis: China\'s manufacturing capabilities in "hard tech" — semiconductors, EVs, batteries, renewable energy — represent durable competitive advantages that Western financial analysts systematically undervalue.',
-      },
-      {
-        type: 'argument',
-        content: 'Unlike software (where network effects dominate), physical manufacturing requires accumulated process knowledge that cannot be easily replicated or leapfrogged.',
-      },
-      {
-        type: 'quote',
-        content: '"The factory floor is the laboratory. Process improvements compound over decades."',
-      },
-      {
-        type: 'text',
-        content: 'Wang argues this explains why China\'s EV industry has advanced faster than most predictions — BYD, CATL, and others benefit from manufacturing density that accelerates iteration.',
-      },
-      {
-        type: 'tension',
-        title: 'Tensions with Dalio',
-        content: 'Where Dalio sees debt cycles as deterministic, Wang emphasizes industrial momentum. Key question: Does financial gravity override industrial momentum?',
-      },
-    ],
-  },
-  '/research/dalio-world-order.md': {
-    id: 'dalio-world-order',
-    title: "Dalio's World Order Cycles",
-    filename: 'dalio.md',
-    sections: [
-      {
-        type: 'summary',
-        marginNote: 'Core thesis',
-        content: 'Dalio argues that empires follow predictable cycles driven by debt, internal conflict, and external challenges. The current US-China dynamic mirrors historical great power transitions.',
-      },
-      {
-        type: 'argument',
-        content: 'The "Big Cycle" framework: rising powers build wealth through productivity, then financialize, then decline as debt burdens compound and social cohesion fractures.',
-      },
-      {
-        type: 'quote',
-        content: '"History doesn\'t repeat, but it rhymes. The patterns of rise and decline are remarkably consistent across civilizations."',
-      },
-    ],
-  },
+// Rust backend response type for chunked documents
+interface ChunkedDocument {
+  id: string
+  filename: string
+  path: string
+  totalTokens: number
+  handling: string
+  chunks: Array<{ index: number; content: string; section: string | null }>
+  summary: string | null
+  sections: Array<{ heading: string; level: number; startChunk: number; tokenCount: number }>
+}
+
+// Convert a ChunkedDocument from the Rust backend to DocumentContent for the viewer
+function mapChunkedToDocumentContent(chunked: ChunkedDocument): DocumentContent {
+  const sections = chunked.chunks.map((chunk) => ({
+    type: 'text' as const,
+    title: chunk.section ?? undefined,
+    content: chunk.content,
+  }))
+
+  return {
+    id: chunked.id,
+    title: chunked.filename,
+    filename: chunked.filename,
+    sections,
+  }
 }
 
 // Map session state to collaborative workflow skill
@@ -249,11 +223,40 @@ function App() {
   // Document viewer state
   const [openDocument, setOpenDocument] = useState<string | null>(null)
   const [documentZIndex, setDocumentZIndex] = useState(10)
+  const [loadedDocument, setLoadedDocument] = useState<DocumentContent | null>(null)
+
+  // File tree state (driven by active session's working directory)
+  const [fileTree, setFileTree] = useState<FileNode[]>([])
+  const [folderName, setFolderName] = useState<string | undefined>(undefined)
 
   // Persist notes
   useEffect(() => {
     localStorage.setItem('dialectic_notes', JSON.stringify(notes))
   }, [notes])
+
+  // Load file tree when active window changes
+  useEffect(() => {
+    if (!activeWindowId) {
+      setFileTree([])
+      setFolderName(undefined)
+      return
+    }
+    const windowState = openWindows.get(activeWindowId)
+    const workingDir = windowState?.workingDir
+    if (!workingDir) {
+      setFileTree([])
+      setFolderName(undefined)
+      return
+    }
+
+    setFolderName(workingDir.split('/').pop() || workingDir)
+    invoke<FileNode[]>('documents_list_directory', { path: workingDir })
+      .then(setFileTree)
+      .catch((err) => {
+        console.warn('Failed to list directory:', err)
+        setFileTree([])
+      })
+  }, [activeWindowId, openWindows])
 
   // Notes handlers
   const handleAddNote = useCallback((content: string) => {
@@ -291,10 +294,28 @@ function App() {
   const handleOpenDocument = useCallback((path: string) => {
     setOpenDocument(path)
     setDocumentZIndex(nextZIndex++)
+
+    // Load the document content from Rust backend
+    const filename = path.split('/').pop() || path
+    const docId = filename.replace(/[^a-zA-Z0-9]/g, '-')
+    invoke<ChunkedDocument>('documents_chunk_document', { path, docId })
+      .then((chunked) => {
+        setLoadedDocument(mapChunkedToDocumentContent(chunked))
+      })
+      .catch((err) => {
+        console.warn('Failed to load document:', err)
+        setLoadedDocument({
+          id: docId,
+          title: filename,
+          filename,
+          sections: [{ type: 'text', content: `Failed to load: ${err}` }],
+        })
+      })
   }, [])
 
   const handleCloseDocument = useCallback(() => {
     setOpenDocument(null)
+    setLoadedDocument(null)
   }, [])
 
   const handleFocusDocument = useCallback(() => {
@@ -303,26 +324,23 @@ function App() {
 
   const handleAddDocumentToSession = useCallback((documentId: string) => {
     // Add document reference to active session's messages
-    if (activeWindowId) {
+    if (activeWindowId && loadedDocument && loadedDocument.id === documentId) {
       setOpenWindows((prev) => {
         const updated = new Map(prev)
         const existing = updated.get(activeWindowId)
         if (existing) {
-          const doc = Object.values(demoDocuments).find(d => d.id === documentId)
-          if (doc) {
-            updated.set(activeWindowId, {
-              ...existing,
-              messages: [
-                ...existing.messages,
-                { role: 'user' as const, content: `[Added document: ${doc.filename}]` },
-              ],
-            })
-          }
+          updated.set(activeWindowId, {
+            ...existing,
+            messages: [
+              ...existing.messages,
+              { role: 'user' as const, content: `[Added document: ${loadedDocument.filename}]` },
+            ],
+          })
         }
         return updated
       })
     }
-  }, [activeWindowId])
+  }, [activeWindowId, loadedDocument])
 
   // View change handler - clears floating windows when switching to Board
   const handleViewChange = useCallback((newView: View) => {
@@ -757,10 +775,10 @@ To complete this integration:
       )}
 
       {/* Document Viewer Window */}
-      {openDocument && demoDocuments[openDocument] && (
+      {openDocument && loadedDocument && (
         <FloatingWindow
-          id={`doc-${demoDocuments[openDocument].id}`}
-          title={demoDocuments[openDocument].title}
+          id={`doc-${loadedDocument.id}`}
+          title={loadedDocument.title}
           initialPosition={{ x: 280, y: 100 }}
           initialSize={{ width: 600, height: 550 }}
           zIndex={documentZIndex}
@@ -768,7 +786,7 @@ To complete this integration:
           onFocus={handleFocusDocument}
         >
           <DocumentViewer
-            document={demoDocuments[openDocument]}
+            document={loadedDocument}
             onClose={handleCloseDocument}
             onAddToSession={handleAddDocumentToSession}
             hasActiveSession={!!activeWindowId}
@@ -782,6 +800,8 @@ To complete this integration:
         isOpen={leftRailOpen}
         onToggle={() => setLeftRailOpen(!leftRailOpen)}
         onFileSelect={handleOpenDocument}
+        files={fileTree}
+        folderName={folderName}
       />
       <RightRail
         isOpen={rightRailOpen}
@@ -789,15 +809,6 @@ To complete this integration:
         sessions={sessions}
         onSessionClick={handleOpenSession}
         activeSessionId={activeWindowId}
-      />
-
-      {/* Global persistent input bar */}
-      <GlobalInputBar
-        activeSessionId={activeWindowId}
-        activeSessionTitle={activeWindowId ? getSession(activeWindowId)?.title : undefined}
-        onMessage={handleSessionMessage}
-        onNewSessionWithFolder={handleNewSessionWithFolder}
-        disabled={activeWindowId ? openWindows.get(activeWindowId)?.isThinking : false}
       />
 
       {/* Keyboard hints (terminal view only) */}

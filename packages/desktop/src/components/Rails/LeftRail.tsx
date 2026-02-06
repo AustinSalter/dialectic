@@ -8,37 +8,20 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import styles from './Rails.module.css'
 
-interface FileNode {
+export interface FileNode {
   name: string
-  type: 'file' | 'folder'
-  children?: FileNode[]
+  path: string
+  isDirectory: boolean
+  children: FileNode[]
 }
 
 interface LeftRailProps {
   isOpen: boolean
   onToggle: () => void
   onFileSelect?: (path: string) => void
+  files?: FileNode[]
+  folderName?: string
 }
-
-// Demo file structure - paths must match demoDocuments in App.tsx
-const demoFiles: FileNode[] = [
-  {
-    name: 'research',
-    type: 'folder',
-    children: [
-      { name: 'wang-letters.md', type: 'file' },
-      { name: 'dalio-world-order.md', type: 'file' },
-      { name: 'asml-analysis.pdf', type: 'file' },
-    ],
-  },
-  {
-    name: 'notes',
-    type: 'folder',
-    children: [
-      { name: 'questions.md', type: 'file' },
-    ],
-  },
-]
 
 // Folder icon SVG
 function FolderIcon() {
@@ -61,43 +44,39 @@ function FileIcon() {
 function FileTreeItem({
   node,
   depth,
-  path,
   onSelect,
 }: {
   node: FileNode
   depth: number
-  path: string
   onSelect?: (path: string) => void
 }) {
-  const [expanded, setExpanded] = useState(true)
-  const currentPath = `${path}/${node.name}`
+  const [expanded, setExpanded] = useState(depth < 1)
 
   const handleClick = () => {
-    if (node.type === 'folder') {
+    if (node.isDirectory) {
       setExpanded(!expanded)
     } else {
-      onSelect?.(currentPath)
+      onSelect?.(node.path)
     }
   }
 
   return (
     <div className={styles.fileTreeItem}>
       <div
-        className={`${styles.fileRow} ${node.type === 'folder' ? styles.folder : styles.file}`}
+        className={`${styles.fileRow} ${node.isDirectory ? styles.folder : styles.file}`}
         style={{ paddingLeft: `${depth * 16 + 12}px` }}
         onClick={handleClick}
       >
-        {node.type === 'folder' ? <FolderIcon /> : <FileIcon />}
+        {node.isDirectory ? <FolderIcon /> : <FileIcon />}
         <span className={styles.fileName}>{node.name}</span>
       </div>
-      {node.type === 'folder' && expanded && node.children && (
+      {node.isDirectory && expanded && node.children.length > 0 && (
         <div className={styles.fileChildren}>
-          {node.children.map((child, idx) => (
+          {node.children.map((child) => (
             <FileTreeItem
-              key={idx}
+              key={child.path}
               node={child}
               depth={depth + 1}
-              path={currentPath}
               onSelect={onSelect}
             />
           ))}
@@ -109,7 +88,7 @@ function FileTreeItem({
 
 const SNAP_THRESHOLD = 60 // pixels from edge to snap
 
-export function LeftRail({ isOpen, onToggle, onFileSelect }: LeftRailProps) {
+export function LeftRail({ isOpen, onToggle, onFileSelect, files, folderName }: LeftRailProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [isSnapped, setIsSnapped] = useState(false)
   const [isNearEdge, setIsNearEdge] = useState(false)
@@ -228,7 +207,7 @@ export function LeftRail({ isOpen, onToggle, onFileSelect }: LeftRailProps) {
         <svg viewBox="0 0 16 16" fill="currentColor" className={styles.railIcon}>
           <path d="M1 4a1 1 0 011-1h12a1 1 0 011 1v.5H1V4zm0 2h14v7a1 1 0 01-1 1H2a1 1 0 01-1-1V6zm5 2a.5.5 0 000 1h4a.5.5 0 000-1H6z"/>
         </svg>
-        <span className={styles.railTitle}>Files</span>
+        <span className={styles.railTitle}>{folderName || 'Files'}</span>
         <button className={styles.railCloseBtn} onClick={onToggle}>
           ×
         </button>
@@ -237,15 +216,26 @@ export function LeftRail({ isOpen, onToggle, onFileSelect }: LeftRailProps) {
       {/* File tree */}
       <div className={styles.railContent}>
         <div className={styles.fileTree}>
-          {demoFiles.map((node, idx) => (
-            <FileTreeItem
-              key={idx}
-              node={node}
-              depth={0}
-              path=""
-              onSelect={onFileSelect}
-            />
-          ))}
+          {files && files.length > 0 ? (
+            files.map((node) => (
+              <FileTreeItem
+                key={node.path}
+                node={node}
+                depth={0}
+                onSelect={onFileSelect}
+              />
+            ))
+          ) : (
+            <div style={{
+              padding: '24px 16px',
+              color: 'rgba(255, 255, 255, 0.4)',
+              fontSize: '12px',
+              fontStyle: 'italic',
+              textAlign: 'center',
+            }}>
+              {folderName ? 'No supported files found' : 'Open a folder session to browse files'}
+            </div>
+          )}
         </div>
       </div>
     </div>

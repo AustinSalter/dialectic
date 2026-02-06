@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod cdg;
 mod session;
 mod terminal;
 mod watcher;
@@ -14,6 +15,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Initialize app data directory structure on first run
             if let Err(e) = session::init_app_data_dir(app.handle()) {
@@ -61,6 +63,7 @@ fn main() {
             obsidian::watcher::obsidian_is_watching,
             obsidian::watcher::obsidian_get_watched_path,
             // Document commands
+            documents::chunker::documents_list_directory,
             documents::chunker::documents_determine_handling,
             documents::chunker::documents_chunk_document,
             documents::embeddings::documents_generate_embedding,
