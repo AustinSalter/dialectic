@@ -10,6 +10,8 @@
  */
 
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import rehypeSanitize from 'rehype-sanitize'
 import type { DocumentContent, DocumentSection } from './types'
 import styles from './DocumentViewer.module.css'
 
@@ -58,7 +60,7 @@ function DocumentSectionView({ section }: { section: DocumentSection }) {
       )}
       <div className={styles.sectionContent}>
         {hasHeader && <SectionHeader title={headerTitle} />}
-        <p className={styles.text}>{section.content}</p>
+        <div className={styles.text}><ReactMarkdown rehypePlugins={[rehypeSanitize]}>{section.content}</ReactMarkdown></div>
       </div>
     </div>
   )

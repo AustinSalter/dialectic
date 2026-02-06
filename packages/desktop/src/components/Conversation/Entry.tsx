@@ -8,6 +8,7 @@
  */
 
 import ReactMarkdown from 'react-markdown'
+import rehypeSanitize from 'rehype-sanitize'
 import styles from './Conversation.module.css'
 
 export type EntryRole = 'user' | 'assistant' | 'tool'
@@ -34,6 +35,7 @@ export function Entry({ role, roleLabel, children, isStreaming = false }: EntryP
       if (role === 'assistant') {
         return (
           <ReactMarkdown
+            rehypePlugins={[rehypeSanitize]}
             components={{
               // Custom code block rendering
               code: ({ className, children, ...props }) => {

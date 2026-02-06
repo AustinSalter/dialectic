@@ -1,20 +1,12 @@
 /**
- * Local storage for sessions, user profile, and API key management
+ * Local storage for sessions and user profile management
  */
 
 import type { Session, SessionState, SessionCategory, SessionMode } from '../components/Kanban'
-import type { Claim } from './ingest'
-import type { Question, Position } from './interview'
-import type { Tension } from './tensions'
-import type { DraftThesis } from './draft'
-import type { Thesis } from './synthesis'
-import type { ChatMessage, UserResponse } from '../components/Chat'
 
 const STORAGE_KEYS = {
-  API_KEY: 'claude_api_key',
   SESSIONS: 'dialectic_sessions',
   USER_PROFILE: 'dialectic_user_profile',
-  SESSION_DATA: 'dialectic_session_data',
 } as const
 
 // --- User Profile Types ---
@@ -54,43 +46,6 @@ interface SerializedUserProfile extends Omit<UserProfile, 'createdAt' | 'updated
   }>
 }
 
-// --- Session Data Types (full session state) ---
-
-export interface PersistedSessionData {
-  source?: {
-    url: string | null
-    title: string
-    text: string
-    claims: Claim[]
-  }
-  interview?: {
-    questions: Question[]
-    responses: UserResponse[]
-    positions: Position[]
-    messages: SerializedChatMessage[]
-  }
-  synthesis?: {
-    draftThesis?: DraftThesis
-    tensions: Tension[]
-    thesis?: SerializedThesis
-  }
-}
-
-// Serialized chat message for localStorage
-interface SerializedChatMessage extends Omit<ChatMessage, 'timestamp'> {
-  timestamp: string
-}
-
-// Serialized thesis for localStorage
-interface SerializedThesis extends Omit<Thesis, 'created_at'> {
-  created_at: string
-}
-
-// Session data store keyed by session ID
-interface SessionDataStore {
-  [sessionId: string]: PersistedSessionData
-}
-
 // Serialization helpers for Date objects
 interface SerializedSession extends Omit<Session, 'createdAt' | 'updatedAt'> {
   createdAt: string
@@ -113,24 +68,6 @@ function deserializeSession(data: SerializedSession): Session {
     createdAt: new Date(data.createdAt),
     updatedAt: new Date(data.updatedAt),
   }
-}
-
-// --- API Key Management ---
-
-export function getApiKey(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.API_KEY)
-}
-
-export function setApiKey(key: string): void {
-  localStorage.setItem(STORAGE_KEYS.API_KEY, key)
-}
-
-export function clearApiKey(): void {
-  localStorage.removeItem(STORAGE_KEYS.API_KEY)
-}
-
-export function hasApiKey(): boolean {
-  return !!getApiKey()
 }
 
 // --- Session Management ---
@@ -282,44 +219,6 @@ export function addProfileNote(content: string, source: 'user' | 'agent'): UserP
   }
   saveUserProfile(updated)
   return updated
-}
-
-// --- Session Data Management ---
-
-function loadSessionDataStore(): SessionDataStore {
-  try {
-    const data = localStorage.getItem(STORAGE_KEYS.SESSION_DATA)
-    if (!data) return {}
-    return JSON.parse(data)
-  } catch {
-    console.warn('Failed to load session data store')
-    return {}
-  }
-}
-
-function saveSessionDataStore(store: SessionDataStore): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.SESSION_DATA, JSON.stringify(store))
-  } catch {
-    console.warn('Failed to save session data store')
-  }
-}
-
-export function getSessionData(sessionId: string): PersistedSessionData | null {
-  const store = loadSessionDataStore()
-  return store[sessionId] || null
-}
-
-export function saveSessionData(sessionId: string, data: PersistedSessionData): void {
-  const store = loadSessionDataStore()
-  store[sessionId] = data
-  saveSessionDataStore(store)
-}
-
-export function deleteSessionData(sessionId: string): void {
-  const store = loadSessionDataStore()
-  delete store[sessionId]
-  saveSessionDataStore(store)
 }
 
 export function getStorageUsage(): { used: number; available: number } {
