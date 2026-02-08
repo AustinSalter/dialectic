@@ -109,6 +109,80 @@ pub fn resolve_mention(mention: &str) -> Result<Vec<NoteIndex>, ObsidianError> {
     Ok(matches)
 }
 
+/// Semantic search over Obsidian notes via Chroma
+pub async fn query_notes_semantic(
+    query: &str,
+    n_results: u32,
+) -> Vec<QueryResult> {
+    let client = crate::chroma::client::get_client();
+    let collection = match client.get_collection(
+        crate::chroma::collections::COLLECTION_OBSIDIAN,
+    ).await {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let count = match client.count(&collection.id).await {
+        Ok(c) if c > 0 => c,
+        _ => return Vec::new(),
+    };
+
+    let result = match client.query(
+        &collection.id,
+        None,
+        Some(vec![query.to_string()]),
+        n_results.min(count),
+        None,
+        None,
+        Some(vec![
+            "documents".to_string(),
+            "metadatas".to_string(),
+            "distances".to_string(),
+        ]),
+    ).await {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+
+    let index = match get_vault_index() {
+        Ok(idx) => idx,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut results = Vec::new();
+
+    for (query_idx, ids) in result.ids.iter().enumerate() {
+        for (result_idx, _id) in ids.iter().enumerate() {
+            let metadata = result.metadatas.as_ref()
+                .and_then(|m| m.get(query_idx))
+                .and_then(|m| m.get(result_idx))
+                .and_then(|m| m.clone());
+
+            let distance = result.distances.as_ref()
+                .and_then(|d| d.get(query_idx))
+                .and_then(|d| d.get(result_idx))
+                .copied()
+                .unwrap_or(f32::MAX);
+
+            let path = metadata.as_ref()
+                .and_then(|m| m.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if let Some(note) = index.notes.get(path) {
+                let relevance = 1.0 / (1.0 + distance);
+                results.push(QueryResult {
+                    note: note.clone(),
+                    relevance,
+                    match_type: MatchType::Content,
+                });
+            }
+        }
+    }
+
+    results
+}
+
 /// Query notes with fuzzy matching and relevance scoring
 pub fn query_notes(query: &str, budget: u32) -> Result<Vec<QueryResult>, ObsidianError> {
     let index = get_vault_index()?;
@@ -304,6 +378,36 @@ pub fn obsidian_resolve_mention(mention: String) -> Result<Vec<NoteIndex>, Obsid
 #[tauri::command]
 pub fn obsidian_query_notes(query: String, budget: u32) -> Result<Vec<QueryResult>, ObsidianError> {
     query_notes(&query, budget)
+}
+
+/// Hybrid search: keyword + semantic via Chroma, deduped by path
+#[tauri::command]
+pub async fn obsidian_query_notes_semantic(
+    query: String,
+    budget: u32,
+    n_results: u32,
+) -> Result<Vec<QueryResult>, ObsidianError> {
+    // Get keyword results
+    let mut keyword_results = query_notes(&query, budget)?;
+
+    // Get semantic results from Chroma
+    let semantic_results = query_notes_semantic(&query, n_results).await;
+
+    // Merge: dedup by path, keep highest relevance
+    let mut seen_paths: std::collections::HashSet<String> = keyword_results.iter()
+        .map(|r| r.note.path.clone())
+        .collect();
+
+    for result in semantic_results {
+        if seen_paths.insert(result.note.path.clone()) {
+            keyword_results.push(result);
+        }
+    }
+
+    // Re-sort by relevance
+    keyword_results.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal));
+
+    Ok(keyword_results)
 }
 
 #[tauri::command]

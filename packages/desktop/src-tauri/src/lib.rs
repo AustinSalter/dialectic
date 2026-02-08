@@ -2,7 +2,9 @@
 // Exports core modules for use by both Tauri app and CLI binary
 
 pub mod cdg;
+pub mod chroma;
 pub mod context;
+pub mod documents;
 pub mod obsidian;
 pub mod session;
 

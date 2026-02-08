@@ -306,6 +306,76 @@ pub fn configure_vault(vault_path: &str) -> Result<(), ObsidianError> {
     Ok(())
 }
 
+/// Index the vault into Chroma for semantic search (best-effort, non-blocking)
+pub async fn index_vault_to_chroma() -> u32 {
+    let notes_data: Vec<(String, String, String, Vec<String>, u32, String)> = {
+        let index = VAULT_INDEX.read();
+        match index.as_ref() {
+            Some(vault) => vault.notes.values().map(|note| {
+                // Read the full content for Chroma indexing
+                let full_path = vault.vault_path.join(&note.path);
+                let content = fs::read_to_string(&full_path).unwrap_or_else(|_| note.summary.clone());
+                (
+                    note.path.clone(),
+                    note.title.clone(),
+                    content,
+                    note.tags.clone(),
+                    note.token_count,
+                    note.modified.to_rfc3339(),
+                )
+            }).collect(),
+            None => Vec::new(),
+        }
+    };
+
+    if notes_data.is_empty() {
+        return 0;
+    }
+
+    let client = crate::chroma::client::get_client();
+    let collection = match client.get_or_create_collection(
+        crate::chroma::collections::COLLECTION_OBSIDIAN, None
+    ).await {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+
+    // Chunk notes into batches of 50 for Chroma upsert
+    let mut indexed = 0u32;
+    for batch in notes_data.chunks(50) {
+        let ids: Vec<String> = batch.iter()
+            .map(|(path, ..)| format!("obsidian_{}", path.replace('/', "_")))
+            .collect();
+
+        let documents: Vec<String> = batch.iter()
+            .map(|(_, _, content, ..)| content.clone())
+            .collect();
+
+        let metadatas: Vec<serde_json::Value> = batch.iter()
+            .map(|(path, title, _, tags, token_count, modified)| {
+                crate::chroma::collections::obsidian_chunk_metadata(
+                    path, title, tags, *token_count, modified,
+                )
+            })
+            .collect();
+
+        match client.upsert(
+            &collection.id,
+            ids,
+            Some(documents),
+            None,
+            Some(metadatas),
+        ).await {
+            Ok(_) => indexed += batch.len() as u32,
+            Err(e) => {
+                eprintln!("Chroma obsidian indexing batch failed: {}", e);
+            }
+        }
+    }
+
+    indexed
+}
+
 /// Index the entire vault
 pub fn index_vault() -> Result<IndexStats, ObsidianError> {
     let mut index = VAULT_INDEX.write();
@@ -381,8 +451,16 @@ pub fn obsidian_configure_vault(vault_path: String) -> Result<(), ObsidianError>
 }
 
 #[tauri::command]
-pub fn obsidian_index_vault() -> Result<IndexStats, ObsidianError> {
-    index_vault()
+pub async fn obsidian_index_vault() -> Result<IndexStats, ObsidianError> {
+    let stats = index_vault()?;
+
+    // Best-effort Chroma indexing (don't fail if Chroma is offline)
+    let chroma_indexed = index_vault_to_chroma().await;
+    if chroma_indexed > 0 {
+        eprintln!("Indexed {} notes to Chroma", chroma_indexed);
+    }
+
+    Ok(stats)
 }
 
 #[tauri::command]

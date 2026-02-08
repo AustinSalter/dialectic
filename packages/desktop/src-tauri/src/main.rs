@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod cdg;
+mod chroma;
 mod session;
 mod terminal;
 mod watcher;
@@ -9,14 +10,13 @@ mod context;
 mod obsidian;
 mod documents;
 
-use tauri::Manager;
-
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            use tauri::Manager;
             // Initialize app data directory structure on first run
             if let Err(e) = session::init_app_data_dir(app.handle()) {
                 eprintln!("Failed to initialize app data directory: {}", e);
@@ -56,6 +56,7 @@ fn main() {
             obsidian::indexer::obsidian_get_stats,
             obsidian::query::obsidian_resolve_mention,
             obsidian::query::obsidian_query_notes,
+            obsidian::query::obsidian_query_notes_semantic,
             obsidian::query::obsidian_get_note_content,
             obsidian::query::obsidian_get_related_notes,
             obsidian::watcher::obsidian_start_watching,
@@ -77,7 +78,33 @@ fn main() {
             documents::retriever::documents_search_all,
             documents::retriever::documents_get_chunk,
             documents::retriever::documents_clear_ephemeral,
+            // Chroma commands — sidecar
+            chroma::sidecar::chroma_start_sidecar,
+            chroma::sidecar::chroma_stop_sidecar,
+            chroma::sidecar::chroma_get_status,
+            // Chroma commands — client
+            chroma::client::chroma_health_check,
+            chroma::client::chroma_list_collections,
+            // Chroma commands — collections
+            chroma::collections::chroma_ensure_collections,
+            chroma::collections::chroma_get_collection_status,
+            // Chroma commands — search
+            chroma::search::chroma_search_all,
+            chroma::search::chroma_search_session,
+            chroma::search::chroma_search_document,
+            // Chroma commands — memory
+            chroma::memory::chroma_write_memory,
+            chroma::memory::chroma_read_memories,
+            chroma::memory::chroma_list_memories,
+            chroma::memory::chroma_delete_memory,
+            chroma::memory::chroma_clear_memories,
+            chroma::memory::chroma_get_memory_stats,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                let _ = chroma::sidecar::stop_sidecar();
+            }
+        });
 }
