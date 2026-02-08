@@ -2,7 +2,7 @@
 
 .button {
   position: fixed;
-  bottom: calc(52px + 16px); /* Above GlobalInputBar (52px) + spacing */
+  bottom: calc(18px + 32px); /* Above KeyboardHints bar + spacing */
   right: 16px;
   z-index: 15; /* Above vista (10), below modals (100+) */
 

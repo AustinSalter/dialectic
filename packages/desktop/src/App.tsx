@@ -704,8 +704,8 @@ To complete this integration:
             id={sessionId}
             title={session.title}
             status={{ type: windowState.terminalActive ? 'terminal' : (session.tensionCount > 0 ? 'tensions' : 'active'), count: session.tensionCount }}
-            initialPosition={{ x: 100 + (openWindows.size * 20), y: 80 + (openWindows.size * 20) }}
-            initialSize={{ width: 700, height: 500 }}
+            initialPosition={{ x: Math.round(window.innerWidth * 0.125) + (openWindows.size * 20), y: Math.round(window.innerHeight * 0.125) + (openWindows.size * 20) }}
+            initialSize={{ width: Math.round(window.innerWidth * 0.75), height: Math.round(window.innerHeight * 0.75) }}
             isFullscreen={windowState.isFullscreen}
             zIndex={windowState.zIndex}
             onClose={() => handleCloseSession(sessionId)}

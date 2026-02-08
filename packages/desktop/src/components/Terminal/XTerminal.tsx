@@ -16,6 +16,15 @@ import styles from './XTerminal.module.css'
 // This accounts for shell startup time (loading .zshrc/.bashrc, etc.)
 const SHELL_INIT_DELAY_MS = 500
 
+// Debounce delay for resize events to avoid flooding the PTY during animated resizing
+const RESIZE_DEBOUNCE_MS = 150
+
+// Bounds for terminal dimensions to prevent degenerate sizes
+const MIN_COLS = 20
+const MAX_COLS = 500
+const MIN_ROWS = 5
+const MAX_ROWS = 200
+
 // Terminal theme from design tokens (dialectic-terminal-mockup_1.html)
 const TERMINAL_THEME = {
   background: '#1F1E1B',      // --warm-black
@@ -56,6 +65,8 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand }: XT
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const hasSpawnedRef = useRef(false)
+  // Track dimensions last sent to PTY, shared between spawn and resize observer
+  const lastDimsRef = useRef({ cols: 0, rows: 0 })
 
   // Terminal hook with output handler
   const { spawn, write, resize, isConnected, error } = useTerminal({
@@ -112,11 +123,18 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand }: XT
     hasSpawnedRef.current = true
     const fit = fitAddonRef.current
 
+    const dims = fit.proposeDimensions()
+    const cols = Math.max(MIN_COLS, Math.min(MAX_COLS, dims?.cols ?? 80))
+    const rows = Math.max(MIN_ROWS, Math.min(MAX_ROWS, dims?.rows ?? 24))
+
+    // Record spawn dimensions so ResizeObserver won't send a redundant resize
+    lastDimsRef.current = { cols, rows }
+
     const config: TerminalConfig = {
       sessionId,
       workingDir,
-      cols: fit.proposeDimensions()?.cols ?? 80,
-      rows: fit.proposeDimensions()?.rows ?? 24,
+      cols,
+      rows,
     }
 
     spawn(config)
@@ -137,29 +155,45 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand }: XT
       })
   }, [sessionId, workingDir, spawn, write, initialCommand])
 
-  // Handle resize
+  // Handle resize with debouncing
   useEffect(() => {
     if (!containerRef.current || !fitAddonRef.current) return
 
-    const resizeObserver = new ResizeObserver(() => {
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
+
+    const doResize = () => {
       const fit = fitAddonRef.current
       if (!fit) return
 
       try {
         fit.fit()
         const dims = fit.proposeDimensions()
-        if (dims) {
-          resize(dims.cols, dims.rows)
+        if (!dims) return
+
+        const cols = Math.max(MIN_COLS, Math.min(MAX_COLS, dims.cols))
+        const rows = Math.max(MIN_ROWS, Math.min(MAX_ROWS, dims.rows))
+
+        // Only send resize if dimensions actually changed from what PTY knows
+        if (cols !== lastDimsRef.current.cols || rows !== lastDimsRef.current.rows) {
+          lastDimsRef.current = { cols, rows }
+          resize(cols, rows)
         }
       } catch {
         // Ignore resize errors during transitions
       }
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      // Debounce all resize events to avoid flooding the PTY with SIGWINCH
+      if (resizeTimer) clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(doResize, RESIZE_DEBOUNCE_MS)
     })
 
     resizeObserver.observe(containerRef.current)
 
     return () => {
       resizeObserver.disconnect()
+      if (resizeTimer) clearTimeout(resizeTimer)
     }
   }, [resize])
 

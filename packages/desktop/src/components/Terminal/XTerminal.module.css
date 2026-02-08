@@ -15,6 +15,11 @@
   flex: 1;
   padding: 12px;
   min-height: 0;
+  /* FitAddon reads getComputedStyle(parent).width to calculate cols.
+     With the global border-box reset, that includes padding — making
+     FitAddon think there are ~3 more cols than xterm.js actually renders.
+     content-box ensures computed width = content area = accurate cols. */
+  box-sizing: content-box;
 }
 
 /* Override xterm.js internal styles for consistent sizing */
