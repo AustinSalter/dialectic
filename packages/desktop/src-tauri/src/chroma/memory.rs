@@ -193,13 +193,13 @@ pub async fn read_memories(
             updated_meta["access_count"] = json!(access_count + 1);
             updated_meta["last_accessed"] = json!(now);
             ids_to_update.push(id.clone());
-            metadatas_to_update.push(updated_meta);
+            metadatas_to_update.push(updated_meta.clone());
 
             records.push(MemoryRecord {
                 id: id.clone(),
                 memory_type,
                 content,
-                metadata,
+                metadata: updated_meta,
                 relevance: Some(relevance),
             });
         }
@@ -290,12 +290,12 @@ pub async fn delete_memory(memory_type: MemoryType, id: &str) -> Result<(), Memo
 
 /// Clear all memories of a given type
 pub async fn clear_memories(memory_type: MemoryType) -> Result<(), MemoryError> {
-    warn!(memory_type = %memory_type.as_str(), "Cleared all memories (destructive)");
     let client = get_client();
     let collection_name = memory_type.collection_name();
     // Delete and recreate the collection
     client.delete_collection(collection_name).await?;
     client.get_or_create_collection(collection_name, None).await?;
+    warn!(memory_type = %memory_type.as_str(), "Cleared all memories (destructive)");
     Ok(())
 }
 

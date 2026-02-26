@@ -5,7 +5,11 @@
 use serde::{Deserialize, Serialize};
 use super::indexer::{get_vault_index, NoteIndex, ObsidianError};
 use std::fs;
-use tracing::debug;
+use tracing::{debug, warn};
+
+/// L2 distance threshold for semantic search.
+/// Relevance = 1/(1+distance); threshold 0.25 ≈ distance 3.0.
+const SEMANTIC_RELEVANCE_THRESHOLD: f32 = 0.25;
 
 /// Query result with relevance score
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,12 +124,19 @@ pub async fn query_notes_semantic(
         crate::chroma::collections::COLLECTION_OBSIDIAN,
     ).await {
         Ok(c) => c,
-        Err(_) => return Vec::new(),
+        Err(e) => {
+            warn!(error = %e, "Obsidian semantic search: failed to get collection");
+            return Vec::new();
+        }
     };
 
     let count = match client.count(&collection.id).await {
         Ok(c) if c > 0 => c,
-        _ => return Vec::new(),
+        Ok(_) => return Vec::new(),
+        Err(e) => {
+            warn!(error = %e, "Obsidian semantic search: failed to count collection");
+            return Vec::new();
+        }
     };
 
     let result = match client.query(
@@ -142,12 +153,18 @@ pub async fn query_notes_semantic(
         ]),
     ).await {
         Ok(r) => r,
-        Err(_) => return Vec::new(),
+        Err(e) => {
+            warn!(error = %e, query = %query, "Obsidian semantic search: query failed");
+            return Vec::new();
+        }
     };
 
     let index = match get_vault_index() {
         Ok(idx) => idx,
-        Err(_) => return Vec::new(),
+        Err(e) => {
+            warn!(error = %e, "Obsidian semantic search: failed to get vault index");
+            return Vec::new();
+        }
     };
 
     let mut results = Vec::new();
@@ -170,8 +187,14 @@ pub async fn query_notes_semantic(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
+            let relevance = 1.0 / (1.0 + distance);
+
+            if relevance < SEMANTIC_RELEVANCE_THRESHOLD {
+                debug!(path = %path, relevance = relevance, "Filtered low-relevance semantic result");
+                continue;
+            }
+
             if let Some(note) = index.notes.get(path) {
-                let relevance = 1.0 / (1.0 + distance);
                 results.push(QueryResult {
                     note: note.clone(),
                     relevance,
