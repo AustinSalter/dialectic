@@ -11,6 +11,13 @@ mod obsidian;
 mod documents;
 
 fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("dialectic=info")),
+        )
+        .init();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -19,7 +26,7 @@ fn main() {
             use tauri::Manager;
             // Initialize app data directory structure on first run
             if let Err(e) = session::init_app_data_dir(app.handle()) {
-                eprintln!("Failed to initialize app data directory: {}", e);
+                tracing::error!(error = %e, "Failed to initialize app data directory");
             }
             Ok(())
         })

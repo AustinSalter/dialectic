@@ -314,12 +314,12 @@ fn list_sessions_from_dir(sessions_dir: &PathBuf) -> Result<Vec<Session>, Sessio
                         match serde_json::from_str::<Session>(&content) {
                             Ok(session) => sessions.push(session),
                             Err(e) => {
-                                eprintln!("Warning: Failed to parse session at {:?}: {}", session_json, e);
+                                tracing::warn!(path = ?session_json, error = %e, "Failed to parse session");
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("Warning: Failed to read session at {:?}: {}", session_json, e);
+                        tracing::warn!(path = ?session_json, error = %e, "Failed to read session");
                     }
                 }
             }
@@ -372,7 +372,7 @@ pub fn init_app_data_dir(app: &AppHandle) -> Result<(), SessionError> {
 }
 
 /// Get session directory path
-fn get_session_dir(app: &AppHandle, session_id: &str) -> Result<PathBuf, SessionError> {
+pub(crate) fn get_session_dir(app: &AppHandle, session_id: &str) -> Result<PathBuf, SessionError> {
     validate_session_id(session_id)?;
     let base = get_app_data_path(app)?;
     Ok(base.join("sessions").join(format!("sess_{}", session_id)))
