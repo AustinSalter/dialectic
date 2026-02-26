@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
+use tracing::{info, warn, debug};
 
 use super::client::{ChromaClient, ChromaError, get_client};
 use super::collections::*;
@@ -127,6 +128,7 @@ pub async fn search_all(
 ) -> Result<SearchResults, SearchError> {
     let client = get_client();
 
+    let truncated_query: String = query.chars().take(100).collect();
     let target_collections = collections.unwrap_or_else(|| {
         vec![
             COLLECTION_DOCUMENTS.to_string(),
@@ -136,6 +138,9 @@ pub async fn search_all(
             COLLECTION_MEMORY_EPISODIC.to_string(),
         ]
     });
+
+    let collection_names: Vec<&str> = target_collections.iter().map(|s| s.as_str()).collect();
+    info!(query = %truncated_query, n_results = n_results, collections = ?collection_names, "Cross-collection search");
 
     // Launch all collection searches concurrently
     let futures: Vec<_> = target_collections.iter().map(|collection_name| {
@@ -171,7 +176,7 @@ pub async fn search_all(
                 searched.push(name);
             }
             Err(e) => {
-                eprintln!("Search failed for collection {}: {}", name, e);
+                warn!(collection = %name, error = %e, "Search failed for collection");
             }
         }
     }
@@ -183,6 +188,8 @@ pub async fn search_all(
 
     // Limit total results
     all_hits.truncate(n_results as usize);
+
+    debug!(total_hits = total, returned = all_hits.len(), "Merged cross-collection results");
 
     Ok(SearchResults {
         hits: all_hits,
@@ -197,6 +204,7 @@ pub async fn search_session_documents(
     query: &str,
     n_results: u32,
 ) -> Result<Vec<SearchHit>, SearchError> {
+    debug!(session_id = %session_id, query = %query, "Searching session documents");
     let client = get_client();
     let filter = session_filter(session_id);
     let hits = search_collection(
@@ -216,6 +224,7 @@ pub async fn search_document(
     query: &str,
     n_results: u32,
 ) -> Result<Vec<SearchHit>, SearchError> {
+    debug!(session_id = %session_id, doc_id = %doc_id, "Searching within document");
     let client = get_client();
     let filter = document_filter(session_id, doc_id);
     let hits = search_collection(

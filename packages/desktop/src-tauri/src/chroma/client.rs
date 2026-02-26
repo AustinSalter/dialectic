@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Duration;
 use thiserror::Error;
+use tracing::{info, warn, error, debug};
 
 use super::sidecar::CHROMA_PORT;
 
@@ -98,6 +99,7 @@ impl ChromaClient {
 
     /// Health check — returns nanosecond heartbeat if healthy
     pub async fn heartbeat(&self) -> Result<i64, ChromaError> {
+        debug!("Chroma heartbeat check");
         let resp = self.http.get(format!("{}/api/v1/heartbeat", self.base_url))
             .send().await?;
 
@@ -134,9 +136,11 @@ impl ChromaClient {
         let text = resp.text().await?;
 
         if !status.is_success() {
+            error!(name = %name, status = %status, "Collection get_or_create failed");
             return Err(ChromaError::Http(format!("Create collection failed ({}): {}", status, text)));
         }
 
+        info!(name = %name, "Collection get_or_create");
         serde_json::from_str(&text)
             .map_err(|e| ChromaError::Deserialize(format!("{}: {}", e, text)))
     }
@@ -157,7 +161,11 @@ impl ChromaClient {
         ))
             .send().await?;
 
-        if resp.status().is_success() || resp.status().as_u16() == 404 {
+        if resp.status().as_u16() == 404 {
+            warn!(name = %name, "Collection already deleted (404)");
+            Ok(())
+        } else if resp.status().is_success() {
+            info!(name = %name, "Deleted collection");
             Ok(())
         } else {
             Err(ChromaError::Http(format!("Delete collection failed: {}", resp.status())))
@@ -203,6 +211,7 @@ impl ChromaClient {
             body["metadatas"] = json!(metas);
         }
 
+        let count = ids.len();
         let resp = self.http.post(format!(
             "{}/api/v1/collections/{}/add",
             self.base_url, collection_id
@@ -211,10 +220,13 @@ impl ChromaClient {
             .send().await?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            error!(status = %status, body = %text, "Chroma HTTP error");
             return Err(ChromaError::Http(format!("Add failed: {}", text)));
         }
 
+        info!(collection = %collection_id, count = count, "Added documents");
         Ok(())
     }
 
@@ -242,6 +254,7 @@ impl ChromaClient {
             body["metadatas"] = json!(metas);
         }
 
+        let count = ids.len();
         let resp = self.http.post(format!(
             "{}/api/v1/collections/{}/upsert",
             self.base_url, collection_id
@@ -250,10 +263,13 @@ impl ChromaClient {
             .send().await?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            error!(status = %status, body = %text, "Chroma HTTP error");
             return Err(ChromaError::Http(format!("Upsert failed: {}", text)));
         }
 
+        info!(collection = %collection_id, count = count, "Upserted documents");
         Ok(())
     }
 
@@ -286,6 +302,7 @@ impl ChromaClient {
             body["include"] = json!(inc);
         }
 
+        debug!(collection = %collection_id, n_results = n_results, "Querying collection");
         let resp = self.http.post(format!(
             "{}/api/v1/collections/{}/query",
             self.base_url, collection_id
@@ -294,7 +311,9 @@ impl ChromaClient {
             .send().await?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            error!(status = %status, body = %text, "Chroma HTTP error");
             return Err(ChromaError::Http(format!("Query failed: {}", text)));
         }
 
@@ -370,10 +389,13 @@ impl ChromaClient {
             .send().await?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            error!(status = %status, body = %text, "Chroma HTTP error");
             return Err(ChromaError::Http(format!("Delete failed: {}", text)));
         }
 
+        info!(collection = %collection_id, "Deleted from collection");
         Ok(())
     }
 
@@ -389,7 +411,9 @@ impl ChromaClient {
             return Err(ChromaError::Http(format!("Count failed: {}", resp.status())));
         }
 
-        resp.json().await.map_err(|e| ChromaError::Deserialize(e.to_string()))
+        let result: u32 = resp.json().await.map_err(|e| ChromaError::Deserialize(e.to_string()))?;
+        debug!(collection = %collection_id, count = result, "Collection count");
+        Ok(result)
     }
 }
 

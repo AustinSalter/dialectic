@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use tracing::{info, warn};
 
 /// Global vault index
 static VAULT_INDEX: RwLock<Option<VaultIndex>> = RwLock::new(None);
@@ -368,7 +369,7 @@ pub async fn index_vault_to_chroma() -> u32 {
         ).await {
             Ok(_) => indexed += batch.len() as u32,
             Err(e) => {
-                eprintln!("Chroma obsidian indexing batch failed: {}", e);
+                warn!(error = %e, "Chroma obsidian indexing batch failed");
             }
         }
     }
@@ -457,7 +458,7 @@ pub async fn obsidian_index_vault() -> Result<IndexStats, ObsidianError> {
     // Best-effort Chroma indexing (don't fail if Chroma is offline)
     let chroma_indexed = index_vault_to_chroma().await;
     if chroma_indexed > 0 {
-        eprintln!("Indexed {} notes to Chroma", chroma_indexed);
+        info!(count = chroma_indexed, "Indexed notes to Chroma");
     }
 
     Ok(stats)

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::thread;
 use tauri::{AppHandle, Emitter};
 use thiserror::Error;
+use tracing::{info, warn, debug, trace};
 
 #[derive(Error, Debug)]
 pub enum TerminalError {
@@ -141,6 +142,7 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
     ];
 
     // Build command - default to user's shell
+    let cmd_display = config.command.as_deref().unwrap_or("(default shell)").to_string();
     let mut cmd = if let Some(command) = config.command {
         // Validate command against allowlist
         let cmd_name = std::path::Path::new(&command)
@@ -148,6 +150,7 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         if !ALLOWED_COMMANDS.contains(&command.as_str()) && !ALLOWED_COMMANDS.contains(&cmd_name.as_str()) {
+            warn!(command = %cmd_name, "Rejected disallowed terminal command");
             return Err(TerminalError::Pty(format!("Command '{}' is not in the allowed list", cmd_name)));
         }
         let mut cmd = CommandBuilder::new(&command);
@@ -187,6 +190,7 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
         .map_err(|e| TerminalError::Pty(e.to_string()))?;
 
     let pid = child.process_id().unwrap_or(0);
+    info!(session_id = %config.session_id, command = %cmd_display, pid = pid, working_dir = %working_dir.display(), cols = config.cols, rows = config.rows, "Spawned terminal");
 
     // Get writer for later use
     let writer = pair.master.take_writer()
@@ -231,6 +235,7 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
         }
 
         // Emit terminal closed event
+        info!(session_id = %session_id_clone, "Terminal exited");
         let event_name = format!("terminal-closed-{}", session_id_clone);
         let _ = app_clone.emit(&event_name, ());
 
@@ -248,6 +253,7 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
 
 #[tauri::command]
 pub fn write_to_terminal(session_id: String, data: String) -> Result<(), TerminalError> {
+    trace!(session_id = %session_id, bytes = data.len(), "Write to terminal");
     let manager = TERMINAL_MANAGER.lock();
 
     let handle = manager
@@ -266,6 +272,7 @@ pub fn write_to_terminal(session_id: String, data: String) -> Result<(), Termina
 
 #[tauri::command]
 pub fn resize_terminal(session_id: String, cols: u16, rows: u16) -> Result<(), TerminalError> {
+    debug!(session_id = %session_id, cols = cols, rows = rows, "Resized terminal");
     let manager = TERMINAL_MANAGER.lock();
 
     let handle = manager
@@ -289,6 +296,7 @@ pub fn resize_terminal(session_id: String, cols: u16, rows: u16) -> Result<(), T
 
 #[tauri::command]
 pub fn kill_terminal(session_id: String) -> Result<(), TerminalError> {
+    info!(session_id = %session_id, "Killed terminal");
     let mut manager = TERMINAL_MANAGER.lock();
 
     let handle = manager

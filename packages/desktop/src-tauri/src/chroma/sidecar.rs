@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 use thiserror::Error;
+use tracing::{info, warn, error, debug};
 
 /// Sidecar state
 static SIDECAR: Mutex<Option<ChromaSidecar>> = Mutex::new(None);
@@ -140,6 +141,7 @@ impl ChromaSidecar {
                     .output();
 
                 // Wait up to 5 seconds for graceful shutdown
+                debug!("Waiting for graceful sidecar shutdown");
                 let deadline = Instant::now() + Duration::from_secs(5);
                 loop {
                     match child.try_wait() {
@@ -149,6 +151,7 @@ impl ChromaSidecar {
                         }
                         _ => {
                             // Force kill if graceful shutdown failed
+                            warn!("Forced SIGKILL on chroma sidecar");
                             let _ = child.kill();
                             let _ = child.wait();
                             break;
@@ -209,12 +212,14 @@ pub fn resolve_binary_path(app_handle: Option<&tauri::AppHandle>) -> Result<Path
         if let Ok(resource_dir) = handle.path().resource_dir() {
             let sidecar_path = resource_dir.join("binaries").join(sidecar_binary_name());
             if sidecar_path.exists() {
+                info!(path = %sidecar_path.display(), "Resolved chroma binary from Tauri resource");
                 return Ok(sidecar_path);
             }
         }
     }
 
     // Fallback: look for `chroma` on PATH (development mode)
+    warn!("Chroma binary not in resources, falling back to PATH");
     #[cfg(unix)]
     {
         if let Ok(output) = Command::new("which").arg("chroma").output() {
@@ -273,11 +278,16 @@ pub fn start_sidecar(app_handle: Option<&tauri::AppHandle>) -> Result<(), Sideca
     let sc = sidecar.get_or_insert_with(|| ChromaSidecar::new(binary_path.clone(), persist_dir));
     // Update binary path in case it changed (e.g., dev → bundled)
     sc.binary_path = binary_path;
-    sc.start()
+    sc.start()?;
+    let pid = sc.process.as_ref().map(|p| p.id()).unwrap_or(0);
+    let persist_dir = &sc.persist_dir;
+    info!(pid = pid, port = 8000, persist_dir = %persist_dir.display(), "Started chroma sidecar");
+    Ok(())
 }
 
 /// Stop the Chroma sidecar
 pub fn stop_sidecar() -> Result<(), SidecarError> {
+    info!("Stopping chroma sidecar");
     let mut sidecar = SIDECAR.lock();
     if let Some(ref mut sc) = *sidecar {
         sc.stop()?;
@@ -294,8 +304,10 @@ pub fn restart_sidecar() -> Result<(), SidecarError> {
         match sidecar.as_ref() {
             Some(sc) => {
                 if sc.restart_count >= MAX_RESTART_ATTEMPTS {
+                    error!("Max sidecar restart attempts exceeded");
                     return Err(SidecarError::MaxRestartsExceeded);
                 }
+                warn!(attempt = sc.restart_count + 1, "Restarting chroma sidecar");
                 let backoff = Duration::from_millis(
                     BASE_BACKOFF_MS * 2u64.pow(sc.restart_count)
                 );
@@ -326,7 +338,11 @@ pub fn restart_sidecar() -> Result<(), SidecarError> {
 pub fn get_sidecar_status() -> SidecarStatus {
     let mut sidecar = SIDECAR.lock();
     match sidecar.as_mut() {
-        Some(sc) => sc.status(),
+        Some(sc) => {
+            let status = sc.status();
+            debug!(running = status.running, pid = ?status.pid, "Sidecar status query");
+            status
+        }
         None => SidecarStatus {
             running: false,
             port: CHROMA_PORT,
@@ -354,10 +370,16 @@ pub async fn chroma_start_sidecar(app: tauri::AppHandle) -> Result<SidecarStatus
     let client = super::client::get_client();
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut last_err = String::new();
+    let mut attempt = 0u32;
 
     while Instant::now() < deadline {
+        attempt += 1;
+        debug!(attempt = attempt, "Polling chroma health");
         match client.heartbeat().await {
-            Ok(_) => return Ok(get_sidecar_status()),
+            Ok(_) => {
+                info!("Chroma sidecar healthy");
+                return Ok(get_sidecar_status());
+            }
             Err(e) => {
                 last_err = e.to_string();
                 tokio::time::sleep(Duration::from_millis(500)).await;
@@ -365,6 +387,7 @@ pub async fn chroma_start_sidecar(app: tauri::AppHandle) -> Result<SidecarStatus
         }
     }
 
+    error!("Chroma sidecar health check timed out");
     Err(SidecarError::HealthCheckFailed(last_err))
 }
 

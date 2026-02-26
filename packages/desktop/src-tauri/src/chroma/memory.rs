@@ -9,6 +9,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
+use tracing::{info, warn, debug};
 
 use super::client::{ChromaError, get_client};
 use super::collections::*;
@@ -121,6 +122,7 @@ pub async fn write_memory(
         Some(vec![metadata]),
     ).await?;
 
+    info!(memory_type = %memory_type.as_str(), id = %id, "Wrote memory");
     Ok(())
 }
 
@@ -130,6 +132,8 @@ pub async fn read_memories(
     query: &str,
     n_results: u32,
 ) -> Result<Vec<MemoryRecord>, MemoryError> {
+    let truncated: String = query.chars().take(100).collect();
+    debug!(memory_type = %memory_type.as_str(), query = %truncated, n_results = n_results, "Reading memories");
     let client = get_client();
     let collection_name = memory_type.collection_name();
     let collection = match client.get_collection(collection_name).await {
@@ -212,6 +216,7 @@ pub async fn read_memories(
         ).await;
     }
 
+    debug!(count = records.len(), "Memory read results");
     Ok(records)
 }
 
@@ -259,6 +264,7 @@ pub async fn list_memories(
         });
     }
 
+    debug!(memory_type = %memory_type.as_str(), count = records.len(), "Listed memories");
     Ok(records)
 }
 
@@ -278,11 +284,13 @@ pub async fn delete_memory(memory_type: MemoryType, id: &str) -> Result<(), Memo
         None,
     ).await?;
 
+    info!(memory_type = %memory_type.as_str(), id = %id, "Deleted memory");
     Ok(())
 }
 
 /// Clear all memories of a given type
 pub async fn clear_memories(memory_type: MemoryType) -> Result<(), MemoryError> {
+    warn!(memory_type = %memory_type.as_str(), "Cleared all memories (destructive)");
     let client = get_client();
     let collection_name = memory_type.collection_name();
     // Delete and recreate the collection
@@ -302,6 +310,7 @@ pub struct MemoryStats {
 }
 
 pub async fn get_memory_stats() -> Result<MemoryStats, MemoryError> {
+    debug!("Getting memory stats");
     let client = get_client();
 
     let mut counts = [0u32; 3];

@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tracing::{info, debug};
 
 use super::client::{ChromaClient, ChromaError, CollectionInfo};
 
@@ -40,6 +41,7 @@ pub async fn ensure_all_collections(client: &ChromaClient) -> Result<Vec<Collect
         let collection = client.get_or_create_collection(name, None).await?;
         collections.push(collection);
     }
+    info!(count = collections.len(), "Ensured all Chroma collections");
     Ok(collections)
 }
 
@@ -68,6 +70,7 @@ pub async fn get_collection_status(client: &ChromaClient) -> Result<Vec<Collecti
         });
     }
 
+    debug!(count = statuses.len(), "Got collection statuses");
     Ok(statuses)
 }
 

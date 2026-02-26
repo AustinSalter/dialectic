@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 use thiserror::Error;
+use tracing::{info, warn, debug};
 use ulid::Ulid;
 
 use crate::cdg::{CdgEdge, CdgSnapshot};
@@ -294,6 +295,7 @@ pub fn save_session_cli(session: &Session) -> Result<(), SessionError> {
     let session_path = session_dir.join("session.json");
     let content = serde_json::to_string_pretty(session)?;
     atomic_write(&session_path, &content)?;
+    debug!(session_id = %session.id, "Saved session");
     Ok(())
 }
 
@@ -464,6 +466,7 @@ pub fn create_session(app: AppHandle, input: CreateSessionInput) -> Result<Sessi
     let session_json = serde_json::to_string_pretty(&session)?;
     atomic_write(&session_dir.join("session.json"), &session_json)?;
 
+    info!(session_id = %session.id, title = %session.title, mode = ?session.mode, "Created session");
     Ok(session)
 }
 
@@ -478,6 +481,7 @@ pub fn load_session(app: AppHandle, session_id: String) -> Result<Session, Sessi
     let content = fs::read_to_string(&session_path)?;
     let session: Session = serde_json::from_str(&content)?;
 
+    debug!(session_id = %session_id, "Loaded session");
     Ok(session)
 }
 
@@ -485,7 +489,9 @@ pub fn load_session(app: AppHandle, session_id: String) -> Result<Session, Sessi
 pub fn list_sessions(app: AppHandle) -> Result<Vec<Session>, SessionError> {
     let base = get_app_data_path(&app)?;
     let sessions_dir = base.join("sessions");
-    list_sessions_from_dir(&sessions_dir)
+    let sessions = list_sessions_from_dir(&sessions_dir)?;
+    debug!(count = sessions.len(), "Listed sessions");
+    Ok(sessions)
 }
 
 #[tauri::command]
@@ -500,10 +506,13 @@ pub fn update_session_status(
     }
     let content = fs::read_to_string(&session_path)?;
     let mut session: Session = serde_json::from_str(&content)?;
+    let old_status = format!("{:?}", session.status);
+    let new_status = format!("{:?}", status);
     session.status = status;
     session.updated = Utc::now();
     let updated = serde_json::to_string_pretty(&session)?;
     atomic_write(&session_path, &updated)?;
+    info!(session_id = %session_id, old_status = %old_status, new_status = %new_status, "Session status transition");
     Ok(session)
 }
 
@@ -512,10 +521,12 @@ pub fn delete_session(app: AppHandle, session_id: String) -> Result<(), SessionE
     let session_dir = get_session_dir(&app, &session_id)?;
 
     if !session_dir.exists() {
+        warn!(session_id = %session_id, "Session not found for deletion");
         return Err(SessionError::NotFound(session_id));
     }
 
     fs::remove_dir_all(&session_dir)?;
+    info!(session_id = %session_id, "Deleted session");
 
     Ok(())
 }
@@ -713,6 +724,9 @@ pub fn prepare_launch(app: AppHandle, session_id: String) -> Result<LaunchContex
     } else {
         session_dir_str.clone()
     };
+
+    let has_conversation = session.conversation_id.is_some();
+    info!(session_id = %session_id, working_dir = %working_dir, has_conversation = has_conversation, "Prepared launch context");
 
     Ok(LaunchContext {
         working_dir,

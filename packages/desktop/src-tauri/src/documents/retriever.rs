@@ -11,6 +11,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+use tracing::{info, warn, debug};
 use ulid::Ulid;
 
 use super::chunker::{chunk_document, ChunkedDocument, DocumentHandling, DocumentPersistence, ChunkerError, Chunk};
@@ -186,7 +187,7 @@ async fn index_to_chroma(
     ).await {
         Ok(_) => Some(collection.id.clone()),
         Err(e) => {
-            eprintln!("Failed to index to Chroma: {}", e);
+            warn!(error = %e, "Failed to index document to Chroma, local-only");
             None
         }
     }
@@ -230,6 +231,8 @@ pub async fn add_reference(
         chunk_count,
     };
 
+    info!(doc_id = %doc_id, filename = %reference.filename, chunk_count = chunk_count, "Added reference document");
+
     // Store metadata
     {
         let mut store = DOCUMENT_STORE.write();
@@ -251,6 +254,7 @@ pub async fn add_reference(
 
 /// Remove a reference document from a session
 pub async fn remove_reference(session_id: &str, doc_id: &str) -> Result<(), RetrieverError> {
+    info!(doc_id = %doc_id, "Removed reference document");
     // Remove from Chroma
     let client = get_client();
     if let Ok(collection) = client.get_collection(COLLECTION_DOCUMENTS).await {
@@ -310,6 +314,7 @@ pub async fn search_document(
 ) -> Result<Vec<SearchResult>, RetrieverError> {
     // Try Chroma first
     if chroma_available().await {
+        debug!(doc_id = %doc_id, "Searching document via Chroma");
         if let Ok(results) = search_document_chroma(session_id, doc_id, query, top_k).await {
             if !results.is_empty() {
                 return Ok(results);
@@ -318,6 +323,7 @@ pub async fn search_document(
     }
 
     // Fallback to local feature-hash search
+    warn!(doc_id = %doc_id, "Falling back to local search");
     search_document_local(session_id, doc_id, query, top_k)
 }
 
@@ -448,6 +454,7 @@ pub async fn search_all_documents(
 ) -> Result<Vec<SearchResult>, RetrieverError> {
     // Try Chroma first
     if chroma_available().await {
+        debug!(session_id = %session_id, query = %query, top_k = top_k, "Searching all docs via Chroma");
         if let Ok(results) = search_all_chroma(session_id, query, top_k, token_budget).await {
             if !results.is_empty() {
                 return Ok(results);
@@ -456,6 +463,7 @@ pub async fn search_all_documents(
     }
 
     // Fallback to local
+    warn!(session_id = %session_id, "Falling back to local search for session");
     search_all_local(session_id, query, top_k, token_budget)
 }
 
@@ -633,6 +641,7 @@ pub fn get_chunk(session_id: &str, doc_id: &str, chunk_index: u32) -> Result<Chu
 
 /// Clear ephemeral documents from a session
 pub async fn clear_ephemeral(session_id: &str) {
+    info!(session_id = %session_id, "Cleared ephemeral documents");
     // Remove ephemeral docs from Chroma
     let client = get_client();
     if let Ok(collection) = client.get_collection(COLLECTION_DOCUMENTS).await {
@@ -658,6 +667,7 @@ pub async fn clear_ephemeral(session_id: &str) {
 
 /// Clear all documents from a session
 pub async fn clear_session(session_id: &str) {
+    info!(session_id = %session_id, "Cleared all session documents");
     // Remove from Chroma
     let client = get_client();
     if let Ok(collection) = client.get_collection(COLLECTION_DOCUMENTS).await {

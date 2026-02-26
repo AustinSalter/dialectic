@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use super::indexer::{get_vault_index, NoteIndex, ObsidianError};
 use std::fs;
+use tracing::debug;
 
 /// Query result with relevance score
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,6 +181,7 @@ pub async fn query_notes_semantic(
         }
     }
 
+    debug!(query = %query, n_results = n_results, hits = results.len(), "Obsidian semantic search");
     results
 }
 
@@ -389,9 +391,11 @@ pub async fn obsidian_query_notes_semantic(
 ) -> Result<Vec<QueryResult>, ObsidianError> {
     // Get keyword results
     let mut keyword_results = query_notes(&query, budget)?;
+    let keyword_count = keyword_results.len();
 
     // Get semantic results from Chroma
     let semantic_results = query_notes_semantic(&query, n_results).await;
+    let semantic_count = semantic_results.len();
 
     // Merge: dedup by path, keep highest relevance
     let mut seen_paths: std::collections::HashSet<String> = keyword_results.iter()
@@ -406,6 +410,8 @@ pub async fn obsidian_query_notes_semantic(
 
     // Re-sort by relevance
     keyword_results.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal));
+
+    debug!(keyword_hits = keyword_count, semantic_hits = semantic_count, merged = keyword_results.len(), "Obsidian merged search");
 
     Ok(keyword_results)
 }

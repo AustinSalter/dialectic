@@ -31,6 +31,8 @@ parking_lot = "0.12"
 tiktoken-rs = "0.5"
 lazy_static = "1.4"
 anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # HTTP client (for Chroma REST API)
 reqwest = { version = "0.12", features = ["json"] }
