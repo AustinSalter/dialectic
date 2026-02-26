@@ -6,7 +6,7 @@ authors = ["Dialectic"]
 license = "MIT"
 repository = ""
 edition = "2021"
-default-run = "dialectic-tauri"
+default-run = "dialectic"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -45,11 +45,11 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "dialectic"
-path = "src/bin/dialectic.rs"
+path = "src/main.rs"
 
 [[bin]]
-name = "dialectic-tauri"
-path = "src/main.rs"
+name = "dialectic-cli"
+path = "src/bin/dialectic.rs"
 
 [features]
 default = ["custom-protocol"]
