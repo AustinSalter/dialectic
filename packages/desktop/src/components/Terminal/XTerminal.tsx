@@ -10,6 +10,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useTerminal, type TerminalConfig } from '../../hooks/useTerminal'
+import { SyncAwareOutputBatcher, cleanupOnProcessExit, TUIDiagnostics } from '../../lib/tui-diagnostics'
 import styles from './XTerminal.module.css'
 
 // Delay before injecting initial command to allow shell to initialize
@@ -67,13 +68,22 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand }: XT
   const hasSpawnedRef = useRef(false)
   // Track dimensions last sent to PTY, shared between spawn and resize observer
   const lastDimsRef = useRef({ cols: 0, rows: 0 })
+  const batcherRef = useRef<SyncAwareOutputBatcher | null>(null)
+  const diagnosticsRef = useRef<TUIDiagnostics | null>(null)
 
-  // Terminal hook with output handler
+  // Terminal hook with output handler — route through batcher for flicker-free rendering
   const { spawn, write, resize, isConnected, error } = useTerminal({
     onOutput: useCallback((data: string) => {
-      terminalRef.current?.write(data)
+      if (batcherRef.current) {
+        batcherRef.current.write(data)
+      } else {
+        terminalRef.current?.write(data)
+      }
     }, []),
     onClose: useCallback(() => {
+      if (terminalRef.current) {
+        cleanupOnProcessExit(terminalRef.current)
+      }
       onClose?.()
     }, [onClose]),
   })
@@ -109,7 +119,29 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand }: XT
       })
     })
 
+    // Handle binary input (special key combos, mouse events that onData misses)
+    terminal.onBinary((data) => {
+      write(data).catch((err) => {
+        console.error('Failed to write binary to terminal:', err)
+      })
+    })
+
+    // Initialize output batcher for flicker-free rendering (~60fps batching)
+    const batcher = new SyncAwareOutputBatcher(terminal)
+    batcherRef.current = batcher
+
+    // Dev-mode diagnostics
+    if (import.meta.env.DEV) {
+      const diag = new TUIDiagnostics(terminal, { verbose: true })
+      diag.start()
+      diagnosticsRef.current = diag
+    }
+
     return () => {
+      diagnosticsRef.current?.stop()
+      diagnosticsRef.current = null
+      batcherRef.current?.dispose()
+      batcherRef.current = null
       terminal.dispose()
       terminalRef.current = null
       fitAddonRef.current = null

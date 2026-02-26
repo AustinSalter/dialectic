@@ -166,6 +166,12 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
         .map_err(|e| TerminalError::Pty(format!("Invalid working directory '{}': {}", config.working_dir, e)))?;
     cmd.cwd(&working_dir);
 
+    // Set terminal environment variables for proper TUI support
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "dialectic");
+    cmd.env("LANG", std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".to_string()));
+
     // Spawn child process
     let child = pair
         .slave
