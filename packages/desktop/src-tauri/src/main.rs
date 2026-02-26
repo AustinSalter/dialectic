@@ -27,8 +27,8 @@ fn main() {
             // Session commands
             session::create_session,
             session::load_session,
-            session::save_session,
             session::list_sessions,
+            session::update_session_status,
             session::delete_session,
             session::get_app_data_dir,
             session::get_skills_dir,

@@ -241,6 +241,15 @@ fn get_app_data_path(app: &AppHandle) -> Result<PathBuf, SessionError> {
         .map_err(|_| SessionError::NoAppDataDir)
 }
 
+/// Atomic write: write to a .tmp sibling then rename into place.
+/// Prevents corruption if the process crashes mid-write.
+fn atomic_write(path: &std::path::Path, contents: &str) -> Result<(), SessionError> {
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, contents)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
 /// Application identifier - must match tauri.conf.json
 const APP_IDENTIFIER: &str = "com.dialectic.dev";
 
@@ -281,7 +290,7 @@ pub fn save_session_cli(session: &Session) -> Result<(), SessionError> {
     let session_dir = get_session_dir_cli(&session.id)?;
     let session_path = session_dir.join("session.json");
     let content = serde_json::to_string_pretty(session)?;
-    fs::write(&session_path, content)?;
+    atomic_write(&session_path, &content)?;
     Ok(())
 }
 
@@ -447,9 +456,9 @@ pub fn create_session(app: AppHandle, input: CreateSessionInput) -> Result<Sessi
     fs::create_dir_all(session_dir.join("tensions"))?;
     fs::create_dir_all(session_dir.join("thesis"))?;
 
-    // Write session.json
+    // Write session.json atomically
     let session_json = serde_json::to_string_pretty(&session)?;
-    fs::write(session_dir.join("session.json"), session_json)?;
+    atomic_write(&session_dir.join("session.json"), &session_json)?;
 
     Ok(session)
 }
@@ -469,24 +478,29 @@ pub fn load_session(app: AppHandle, session_id: String) -> Result<Session, Sessi
 }
 
 #[tauri::command]
-pub fn save_session(app: AppHandle, session: Session) -> Result<(), SessionError> {
-    let session_path = get_session_json_path(&app, &session.id)?;
-
-    // Update timestamp
-    let mut session = session;
-    session.updated = Utc::now();
-
-    let content = serde_json::to_string_pretty(&session)?;
-    fs::write(&session_path, content)?;
-
-    Ok(())
-}
-
-#[tauri::command]
 pub fn list_sessions(app: AppHandle) -> Result<Vec<Session>, SessionError> {
     let base = get_app_data_path(&app)?;
     let sessions_dir = base.join("sessions");
     list_sessions_from_dir(&sessions_dir)
+}
+
+#[tauri::command]
+pub fn update_session_status(
+    app: AppHandle,
+    session_id: String,
+    status: SessionStatus,
+) -> Result<Session, SessionError> {
+    let session_path = get_session_json_path(&app, &session_id)?;
+    if !session_path.exists() {
+        return Err(SessionError::NotFound(session_id));
+    }
+    let content = fs::read_to_string(&session_path)?;
+    let mut session: Session = serde_json::from_str(&content)?;
+    session.status = status;
+    session.updated = Utc::now();
+    let updated = serde_json::to_string_pretty(&session)?;
+    atomic_write(&session_path, &updated)?;
+    Ok(session)
 }
 
 #[tauri::command]

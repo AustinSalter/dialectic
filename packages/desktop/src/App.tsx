@@ -5,7 +5,7 @@
  * Two views: Terminal (default) and Board.
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Header, type View } from './components/Layout'
 import { Vista, VistaScrollButton, type VistaType, vistaOrder } from './components/Vista'
 import { TerminalView, XTerminal } from './components/Terminal'
@@ -18,7 +18,7 @@ import { LeftRail, RightRail, type FileNode } from './components/Rails'
 import { NotesPanel, type Note } from './components/Notes'
 import { DocumentViewer, type DocumentContent } from './components/DocumentViewer'
 import type { Session, SessionState, SessionCategory } from './components/Kanban'
-import { loadSessions, saveSessions, createSession } from './lib/storage'
+import { loadSessionsFromRust, saveSessions, moveSessionViaRust, deleteSessionViaRust, createSessionViaRust } from './lib/storage'
 import { pickFolder } from './lib/folderPicker'
 
 // Rust backend response type for chunked documents
@@ -89,6 +89,8 @@ function createDemoSessions(): Session[] {
   const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
+  const defaults = { passCount: 0, contextFileCount: 0, isProjectLocal: false }
+
   return [
     // SPARK column (backlog)
     {
@@ -102,6 +104,7 @@ function createDemoSessions(): Session[] {
       summary: 'Compare reasoning capabilities and cost structures',
       createdAt: hourAgo,
       updatedAt: hourAgo,
+      ...defaults,
     },
     {
       id: 'demo-session-2',
@@ -114,6 +117,7 @@ function createDemoSessions(): Session[] {
       summary: 'Analyze supply chain risks from new trade policies',
       createdAt: dayAgo,
       updatedAt: dayAgo,
+      ...defaults,
     },
     // EXPLORE column
     {
@@ -127,6 +131,7 @@ function createDemoSessions(): Session[] {
       summary: 'Tracking enterprise adoption and hyperscaler orders',
       createdAt: twoDaysAgo,
       updatedAt: hourAgo,
+      ...defaults,
     },
     {
       id: 'demo-session-4',
@@ -139,6 +144,7 @@ function createDemoSessions(): Session[] {
       summary: 'Power constraints vs compute buildout trajectories',
       createdAt: weekAgo,
       updatedAt: dayAgo,
+      ...defaults,
     },
     // TENSIONS column
     {
@@ -152,6 +158,7 @@ function createDemoSessions(): Session[] {
       summary: 'SMIC progress vs export control effectiveness',
       createdAt: weekAgo,
       updatedAt: twoDaysAgo,
+      ...defaults,
     },
     // FORMING column
     {
@@ -165,6 +172,7 @@ function createDemoSessions(): Session[] {
       summary: 'Enterprise productivity gains vs subscription costs',
       createdAt: weekAgo,
       updatedAt: dayAgo,
+      ...defaults,
     },
     // SHIP column (formed)
     {
@@ -178,24 +186,70 @@ function createDemoSessions(): Session[] {
       summary: 'Battery storage and grid flexibility technologies',
       createdAt: weekAgo,
       updatedAt: twoDaysAgo,
+      ...defaults,
     },
   ]
 }
 
-// Load sessions with demo data fallback for dev mode
-function loadSessionsWithDemo(): Session[] {
-  const saved = loadSessions()
-  if (saved.length === 0 && import.meta.env.DEV) {
-    const demo = createDemoSessions()
-    saveSessions(demo)
-    return demo
-  }
-  return saved
-}
-
 function App() {
   const [view, setView] = useState<View>('terminal')
-  const [sessions, setSessions] = useState<Session[]>(() => loadSessionsWithDemo())
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(true)
+
+  // Load sessions from Rust backend on mount
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        let loaded = await loadSessionsFromRust()
+        if (cancelled) return
+        // In DEV mode, seed demo sessions via Rust if nothing exists
+        if (loaded.length === 0 && import.meta.env.DEV) {
+          const demos = createDemoSessions()
+          const demoInputs = demos.map((s) => ({
+            title: s.title,
+            mode: s.mode,
+            category: s.category,
+            summary: s.summary,
+          }))
+          const createdIds: { id: string; state: SessionState }[] = []
+          for (let i = 0; i < demoInputs.length; i++) {
+            try {
+              const rs = await invoke<{ id: string }>('create_session', { input: demoInputs[i] })
+              if (demos[i].state !== 'backlog') {
+                createdIds.push({ id: rs.id, state: demos[i].state })
+              }
+            } catch (err) {
+              console.warn('Failed to create demo session via Rust:', err)
+            }
+          }
+          // Move non-backlog sessions to their intended columns
+          for (const { id, state } of createdIds) {
+            try {
+              await invoke('update_session_status', { sessionId: id, status: state })
+            } catch (err) {
+              console.warn('Failed to set demo session status:', err)
+            }
+          }
+          // Re-load from Rust to get the created sessions
+          loaded = await loadSessionsFromRust()
+          if (cancelled) return
+        }
+        setSessions(loaded)
+      } catch {
+        // Final fallback: demo sessions in localStorage
+        if (!cancelled && import.meta.env.DEV) {
+          const demo = createDemoSessions()
+          saveSessions(demo)
+          setSessions(demo)
+        }
+      } finally {
+        if (!cancelled) setSessionsLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   // Session windows state
   const [openWindows, setOpenWindows] = useState<Map<string, SessionWindowState>>(new Map())
@@ -366,17 +420,38 @@ function App() {
     })
   }, [])
 
-  // Save sessions on change
+  // Ref to read current sessions without stale closures
+  const sessionsRef = useRef(sessions)
+  useEffect(() => { sessionsRef.current = sessions }, [sessions])
+
+  // Save sessions to localStorage cache on change (skip while loading to avoid wiping cache)
   useEffect(() => {
-    saveSessions(sessions)
-  }, [sessions])
+    if (!sessionsLoading) {
+      saveSessions(sessions)
+    }
+  }, [sessions, sessionsLoading])
 
   const handleMoveSession = useCallback((sessionId: string, newState: SessionState) => {
+    const prevState = sessionsRef.current.find((s) => s.id === sessionId)?.state
+    // Optimistic update
     setSessions((prev) =>
       prev.map((s) =>
         s.id === sessionId ? { ...s, state: newState, updatedAt: new Date() } : s
       )
     )
+    // Async write-through to Rust; merge back any concurrent changes (claim counts, etc.)
+    moveSessionViaRust(sessionId, newState).then((updated) => {
+      if (updated) {
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? updated : s))
+        )
+      } else if (prevState) {
+        // Rollback optimistic update on failure
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? { ...s, state: prevState } : s))
+        )
+      }
+    })
   }, [])
 
   // Delete a session
@@ -387,14 +462,16 @@ function App() {
       updated.delete(sessionId)
       return updated
     })
-    // Remove from sessions
+    // Optimistic removal from state
     setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+    // Fire-and-forget Rust deletion (removes sess_{id}/ from disk)
+    deleteSessionViaRust(sessionId)
   }, [])
 
   // Open a session in a floating window
   // If state is provided (from Kanban), inject the appropriate workflow skill
   const handleOpenSession = useCallback((sessionId: string, state?: SessionState) => {
-    const session = sessions.find((s) => s.id === sessionId)
+    const session = sessionsRef.current.find((s) => s.id === sessionId)
 
     setOpenWindows((prev) => {
       // If already open, just focus it
@@ -405,9 +482,9 @@ function App() {
         return updated
       }
 
-      // Check if this is a terminal session (summary is a path)
-      const isTerminalSession = session?.summary?.startsWith('/')
-      const workingDir = isTerminalSession ? session.summary : null
+      // Use workingDir from Rust session data; fall back to summary-as-path for legacy localStorage sessions
+      const workingDir = session?.workingDir ?? (session?.summary?.startsWith('/') ? session.summary : null)
+      const isTerminalSession = !!workingDir
 
       // Build initial command if state provided and terminal session
       let initialCommand: string | null = null
@@ -433,7 +510,7 @@ function App() {
       return updated
     })
     setActiveWindowId(sessionId)
-  }, [sessions])
+  }, [])
 
   // Close a session window
   const handleCloseSession = useCallback((sessionId: string) => {
@@ -448,21 +525,21 @@ function App() {
     setOpenWindows((prev) => {
       const updated = new Map(prev)
       updated.delete(sessionId)
-      return updated
-    })
-    // Update active window if we closed the active one
-    setActiveWindowId((prev) => {
-      if (prev === sessionId) {
-        // Find the window with highest z-index
-        const remaining = Array.from(openWindows.entries())
-          .filter(([id]) => id !== sessionId)
-        if (remaining.length > 0) {
-          remaining.sort((a, b) => b[1].zIndex - a[1].zIndex)
-          return remaining[0][0]
+
+      // Update active window from the same state snapshot
+      setActiveWindowId((prevActive) => {
+        if (prevActive === sessionId) {
+          const remaining = Array.from(updated.entries())
+          if (remaining.length > 0) {
+            remaining.sort((a, b) => b[1].zIndex - a[1].zIndex)
+            return remaining[0][0]
+          }
+          return null
         }
-        return null
-      }
-      return prev
+        return prevActive
+      })
+
+      return updated
     })
   }, [openWindows])
 
@@ -545,29 +622,33 @@ To complete this integration:
   }, [])
 
   // Create new session and open it (conversation mode)
-  const handleNewSession = useCallback(() => {
+  const handleNewSession = useCallback(async () => {
     const categories: SessionCategory[] = ['geopolitical', 'market-structure', 'ai-infrastructure', 'energy-power', 'operational']
     const randomCategory = categories[Math.floor(Math.random() * categories.length)]
 
-    const newSession = createSession({
+    const newSession = await createSessionViaRust({
       title: 'New Session',
       category: randomCategory,
       summary: 'Start typing to begin your analysis...',
       mode: 'idea',
     })
 
-    setSessions((prev) => [...prev, newSession])
-    handleOpenSession(newSession.id)
+    if (newSession) {
+      setSessions((prev) => [...prev, newSession])
+      handleOpenSession(newSession.id)
+    }
   }, [handleOpenSession])
 
   // Create new terminal session with folder picker
-  const handleNewSessionWithFolder = useCallback((path: string, name: string) => {
-    const newSession = createSession({
+  const handleNewSessionWithFolder = useCallback(async (path: string, name: string) => {
+    const newSession = await createSessionViaRust({
       title: name,
       category: 'operational',
-      summary: path,
+      workingDir: path,
       mode: 'idea',
     })
+
+    if (!newSession) return
 
     setSessions((prev) => [...prev, newSession])
 
