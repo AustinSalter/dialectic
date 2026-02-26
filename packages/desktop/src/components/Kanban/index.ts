@@ -18,6 +18,14 @@ export interface Session {
   summary?: string
   createdAt: Date
   updatedAt: Date
+  // Fields from Rust backend
+  conversationId?: string
+  passCount: number
+  confidenceScore?: number
+  contextFileCount: number
+  isProjectLocal: boolean
+  workingDir?: string
+  thesisPreview?: string
 }
 
 export const stateLabels: Record<SessionState, string> = {

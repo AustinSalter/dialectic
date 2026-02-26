@@ -3,6 +3,7 @@
  */
 
 import type { Session, SessionState, SessionCategory, SessionMode } from '../components/Kanban'
+import { invoke } from '@tauri-apps/api/core'
 
 const STORAGE_KEYS = {
   SESSIONS: 'dialectic_sessions',
@@ -67,6 +68,10 @@ function deserializeSession(data: SerializedSession): Session {
     mode: data.mode || 'idea',
     createdAt: new Date(data.createdAt),
     updatedAt: new Date(data.updatedAt),
+    // Defaults for fields added in Phase 1 (may be absent in older localStorage data)
+    passCount: data.passCount ?? 0,
+    contextFileCount: data.contextFileCount ?? 0,
+    isProjectLocal: data.isProjectLocal ?? false,
   }
 }
 
@@ -93,37 +98,144 @@ export function saveSessions(sessions: Session[]): void {
   }
 }
 
-export function createSession(partial: {
+
+// --- Rust Backend Session Loading ---
+
+/** Shape of a Session as returned by the Rust `list_sessions` command (camelCase serde) */
+interface RustSession {
+  id: string
   title: string
-  category: SessionCategory
+  status: string    // "backlog" | "exploring" | "tensions" | "synthesizing" | "formed"
+  mode: string      // "idea" | "decision"
+  workingDir: string
+  isProjectLocal: boolean
+  created: string   // ISO 8601
+  updated: string   // ISO 8601
+  claims: unknown[]
+  tensions: unknown[]
+  passes: unknown[]
+  contextFiles: unknown[]
+  thesis?: { content: string; confidence: number; updatedAt: string }
+  category?: string
   summary?: string
-  mode?: SessionMode
-}): Session {
-  const now = new Date()
+}
+
+const VALID_STATES: SessionState[] = ['backlog', 'exploring', 'tensions', 'synthesizing', 'formed']
+const VALID_CATEGORIES: SessionCategory[] = ['geopolitical', 'market-structure', 'ai-infrastructure', 'energy-power', 'operational']
+
+export function mapRustSession(rs: RustSession): Session {
+  const state = VALID_STATES.includes(rs.status as SessionState)
+    ? (rs.status as SessionState)
+    : 'backlog'
+  const category = VALID_CATEGORIES.includes(rs.category as SessionCategory)
+    ? (rs.category as SessionCategory)
+    : 'operational'
+
   return {
-    id: `session-${Date.now()}`,
-    title: partial.title,
-    category: partial.category,
-    state: 'backlog' as SessionState,
-    mode: partial.mode || 'idea',
-    claimCount: 0,
-    tensionCount: 0,
-    summary: partial.summary,
-    createdAt: now,
-    updatedAt: now,
+    id: rs.id,
+    title: rs.title,
+    category,
+    state,
+    mode: (rs.mode === 'decision' ? 'decision' : 'idea') as SessionMode,
+    claimCount: rs.claims?.length ?? 0,
+    tensionCount: rs.tensions?.length ?? 0,
+    summary: rs.summary,
+    createdAt: new Date(rs.created),
+    updatedAt: new Date(rs.updated),
+    passCount: rs.passes?.length ?? 0,
+    confidenceScore: rs.thesis?.confidence,
+    contextFileCount: rs.contextFiles?.length ?? 0,
+    isProjectLocal: rs.isProjectLocal,
+    workingDir: rs.workingDir,
+    thesisPreview: rs.thesis?.content?.slice(0, 80),
   }
 }
 
-export function updateSession(sessions: Session[], id: string, updates: Partial<Session>): Session[] {
-  return sessions.map(s =>
-    s.id === id
-      ? { ...s, ...updates, updatedAt: new Date() }
-      : s
-  )
+/**
+ * Load sessions from the Rust backend (single source of truth).
+ * Falls back to localStorage if the Rust invoke fails (e.g. running outside Tauri).
+ * Writes loaded sessions to localStorage as cache.
+ */
+export async function loadSessionsFromRust(): Promise<Session[]> {
+  try {
+    const rustSessions = await invoke<RustSession[]>('list_sessions')
+    const sessions = rustSessions.map(mapRustSession)
+    // Cache in localStorage
+    saveSessions(sessions)
+    return sessions
+  } catch (err) {
+    console.warn('Failed to load sessions from Rust, falling back to localStorage:', err)
+    return loadSessions()
+  }
 }
 
-export function deleteSession(sessions: Session[], id: string): Session[] {
-  return sessions.filter(s => s.id !== id)
+// --- Rust-backed mutation helpers ---
+
+/** Map frontend SessionState to Rust SessionStatus enum value */
+const stateToRustStatus: Record<SessionState, string> = {
+  backlog: 'backlog',
+  exploring: 'exploring',
+  tensions: 'tensions',
+  synthesizing: 'synthesizing',
+  formed: 'formed',
+}
+
+/**
+ * Move a session to a new status via Rust (atomic read-modify-write on disk).
+ * Returns the updated Session (with fresh counts from disk) or null on failure.
+ */
+export async function moveSessionViaRust(sessionId: string, newState: SessionState): Promise<Session | null> {
+  try {
+    const rs = await invoke<RustSession>('update_session_status', {
+      sessionId,
+      status: stateToRustStatus[newState],
+    })
+    return mapRustSession(rs)
+  } catch (err) {
+    console.error('moveSessionViaRust failed:', err)
+    return null
+  }
+}
+
+/**
+ * Delete a session via Rust (removes sess_{id}/ directory from disk).
+ * Returns true on success, false on failure.
+ */
+export async function deleteSessionViaRust(sessionId: string): Promise<boolean> {
+  try {
+    await invoke('delete_session', { sessionId })
+    return true
+  } catch (err) {
+    console.error('deleteSessionViaRust failed:', err)
+    return false
+  }
+}
+
+/**
+ * Create a new session via Rust. Returns the mapped Session or null on failure.
+ */
+export async function createSessionViaRust(input: {
+  title: string
+  mode?: SessionMode
+  workingDir?: string
+  category?: string
+  summary?: string
+}): Promise<Session | null> {
+  try {
+    const rs = await invoke<RustSession>('create_session', {
+      input: {
+        title: input.title,
+        mode: input.mode ?? 'idea',
+        workingDir: input.workingDir ?? null,
+        category: input.category ?? null,
+        summary: input.summary ?? null,
+      },
+    })
+    return mapRustSession(rs)
+  } catch (err) {
+    console.error('createSessionViaRust failed:', err)
+    return null
+  }
 }
 
 // --- User Profile Management ---
