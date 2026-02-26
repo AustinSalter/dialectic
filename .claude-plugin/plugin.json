@@ -10,7 +10,8 @@
     "shape",
     "stress-test",
     "sharpen",
-    "pitfalls"
+    "pitfalls",
+    "tui-debug"
   ],
   "hooks": ["stop", "pre_submit"]
 }
