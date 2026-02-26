@@ -18,7 +18,8 @@ import { LeftRail, RightRail, type FileNode } from './components/Rails'
 import { NotesPanel, type Note } from './components/Notes'
 import { DocumentViewer, type DocumentContent } from './components/DocumentViewer'
 import type { Session, SessionState, SessionCategory } from './components/Kanban'
-import { loadSessionsFromRust, saveSessions, moveSessionViaRust, deleteSessionViaRust, createSessionViaRust } from './lib/storage'
+import { loadSessionsFromRust, loadSessionFromRust, saveSessions, moveSessionViaRust, deleteSessionViaRust, createSessionViaRust, prepareLaunch } from './lib/storage'
+import { useSessionWatcher } from './hooks/useSessionWatcher'
 import { pickFolder } from './lib/folderPicker'
 
 // Rust backend response type for chunked documents
@@ -49,24 +50,6 @@ function mapChunkedToDocumentContent(chunked: ChunkedDocument): DocumentContent 
   }
 }
 
-// Map session state to collaborative workflow skill
-function getSkillForState(state: SessionState): string | null {
-  switch (state) {
-    case 'backlog':
-      return '/spark'       // Brainstorm, gather sources, initial framing
-    case 'exploring':
-      return '/shape'       // Form positions on claims through probing
-    case 'tensions':
-      return '/stress-test' // Challenge assumptions, surface contradictions
-    case 'synthesizing':
-      return '/sharpen'     // Crystallize thesis with calibrated confidence
-    case 'formed':
-      return null           // Completed, no skill needed
-    default:
-      return null
-  }
-}
-
 // Session window state
 interface SessionWindowState {
   zIndex: number
@@ -76,6 +59,7 @@ interface SessionWindowState {
   workingDir: string | null    // Terminal working directory
   terminalActive: boolean      // Whether this is a terminal session
   initialCommand: string | null // Command to inject on terminal start
+  envVars: Record<string, string> | null // Environment variables for terminal
 }
 
 // Z-index management - start above empty state (5) and window base (50)
@@ -431,6 +415,19 @@ function App() {
     }
   }, [sessions, sessionsLoading])
 
+  // Wire watcher events — Rust pushes session.json changes to frontend
+  useSessionWatcher({
+    sessions: sessionsLoading ? [] : sessions,
+    onSessionUpdated: (updated) => {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === updated.id ? updated : s))
+      )
+    },
+    onBudgetAlert: (alert) => {
+      console.log(`Budget alert for ${alert.sessionId}: ${alert.status} (${alert.percentage}%)`)
+    },
+  })
+
   const handleMoveSession = useCallback((sessionId: string, newState: SessionState) => {
     const prevState = sessionsRef.current.find((s) => s.id === sessionId)?.state
     // Optimistic update
@@ -469,43 +466,57 @@ function App() {
   }, [])
 
   // Open a session in a floating window
-  // If state is provided (from Kanban), inject the appropriate workflow skill
-  const handleOpenSession = useCallback((sessionId: string, state?: SessionState) => {
-    const session = sessionsRef.current.find((s) => s.id === sessionId)
-
+  // Calls prepare_launch to generate CLAUDE.md and get the claude command
+  const handleOpenSession = useCallback(async (sessionId: string, _state?: SessionState) => {
+    // Check if already open via functional setter (avoids openWindows dependency)
+    let alreadyOpen = false
     setOpenWindows((prev) => {
-      // If already open, just focus it
       if (prev.has(sessionId)) {
+        alreadyOpen = true
         const updated = new Map(prev)
-        const existing = updated.get(sessionId)!
-        updated.set(sessionId, { ...existing, zIndex: nextZIndex++ })
+        const ex = updated.get(sessionId)!
+        updated.set(sessionId, { ...ex, zIndex: nextZIndex++ })
         return updated
       }
+      return prev
+    })
+    if (alreadyOpen) {
+      setActiveWindowId(sessionId)
+      return
+    }
 
-      // Use workingDir from Rust session data; fall back to summary-as-path for legacy localStorage sessions
-      const workingDir = session?.workingDir ?? (session?.summary?.startsWith('/') ? session.summary : null)
-      const isTerminalSession = !!workingDir
+    const session = sessionsRef.current.find((s) => s.id === sessionId)
 
-      // Build initial command if state provided and terminal session
-      let initialCommand: string | null = null
-      if (isTerminalSession && state) {
-        const skill = getSkillForState(state)
-        if (skill) {
-          // Inject skill command with session ID
-          initialCommand = `${skill} ${sessionId}`
-        }
+    const workingDir = session?.workingDir ?? null
+    const isTerminalSession = !!workingDir
+
+    let initialCommand: string | null = null
+    let envVars: Record<string, string> | null = null
+    let launchWorkingDir = workingDir
+
+    // For terminal sessions, call prepare_launch to get CLAUDE.md + command
+    if (isTerminalSession) {
+      try {
+        const ctx = await prepareLaunch(sessionId)
+        initialCommand = ctx.claudeCommand.join(' ')
+        envVars = ctx.envVars
+        launchWorkingDir = ctx.workingDir
+      } catch (err) {
+        console.warn('prepare_launch failed, falling back to bare shell:', err)
       }
+    }
 
-      // Open new window
+    setOpenWindows((prev) => {
       const updated = new Map(prev)
       updated.set(sessionId, {
         zIndex: nextZIndex++,
         isFullscreen: false,
         isThinking: false,
         messages: [],
-        workingDir: workingDir ?? null,
-        terminalActive: isTerminalSession ?? false,
+        workingDir: launchWorkingDir ?? null,
+        terminalActive: isTerminalSession,
         initialCommand,
+        envVars,
       })
       return updated
     })
@@ -652,6 +663,19 @@ To complete this integration:
 
     setSessions((prev) => [...prev, newSession])
 
+    // Prepare launch context for the new session
+    let initialCommand: string | null = null
+    let envVars: Record<string, string> | null = null
+    let launchWorkingDir = path
+    try {
+      const ctx = await prepareLaunch(newSession.id)
+      initialCommand = ctx.claudeCommand.join(' ')
+      envVars = ctx.envVars
+      launchWorkingDir = ctx.workingDir
+    } catch (err) {
+      console.warn('prepare_launch failed for new session:', err)
+    }
+
     // Open window with terminal active
     setOpenWindows((prev) => {
       const updated = new Map(prev)
@@ -660,9 +684,10 @@ To complete this integration:
         isFullscreen: false,
         isThinking: false,
         messages: [],
-        workingDir: path,
+        workingDir: launchWorkingDir,
         terminalActive: true,
-        initialCommand: null, // New sessions don't auto-inject a skill
+        initialCommand,
+        envVars,
       })
       return updated
     })
@@ -800,6 +825,7 @@ To complete this integration:
                 workingDir={windowState.workingDir}
                 onClose={() => handleCloseSession(sessionId)}
                 initialCommand={windowState.initialCommand ?? undefined}
+                envVars={windowState.envVars ?? undefined}
               />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>

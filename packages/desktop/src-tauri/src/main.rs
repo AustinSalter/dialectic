@@ -39,6 +39,7 @@ fn main() {
             session::delete_session,
             session::get_app_data_dir,
             session::get_skills_dir,
+            session::prepare_launch,
             // Terminal commands
             terminal::spawn_terminal,
             terminal::write_to_terminal,

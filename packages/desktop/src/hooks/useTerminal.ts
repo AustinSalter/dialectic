@@ -17,6 +17,7 @@ export interface TerminalConfig {
   args?: string[]
   cols: number
   rows: number
+  env?: Record<string, string>
 }
 
 export interface TerminalState {

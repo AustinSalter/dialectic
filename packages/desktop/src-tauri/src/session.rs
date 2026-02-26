@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
@@ -184,6 +185,8 @@ pub struct Session {
     pub updated: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_resumed: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
 
     // Content
     #[serde(default)]
@@ -433,6 +436,7 @@ pub fn create_session(app: AppHandle, input: CreateSessionInput) -> Result<Sessi
         created: now,
         updated: now,
         last_resumed: None,
+        conversation_id: None,
         context_files: Vec::new(),
         claims: Vec::new(),
         tensions: Vec::new(),
@@ -514,4 +518,207 @@ pub fn delete_session(app: AppHandle, session_id: String) -> Result<(), SessionE
     fs::remove_dir_all(&session_dir)?;
 
     Ok(())
+}
+
+// ============ LAUNCH PIPELINE ============
+
+/// Response from prepare_launch — everything the frontend needs to spawn a terminal
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchContext {
+    pub working_dir: String,
+    pub session_dir: String,
+    pub conversation_id: Option<String>,
+    pub claude_command: Vec<String>,
+    pub env_vars: HashMap<String, String>,
+}
+
+/// Map session status to the skill name used in CLAUDE.md
+fn get_skill_description(status: &SessionStatus) -> &'static str {
+    match status {
+        SessionStatus::Backlog => "Spark — brainstorm, gather sources, initial framing",
+        SessionStatus::Exploring => "Shape — form positions on claims through probing",
+        SessionStatus::Tensions => "Stress-Test — challenge assumptions, surface contradictions",
+        SessionStatus::Synthesizing => "Sharpen — crystallize thesis with calibrated confidence",
+        SessionStatus::Formed => "Ship — session is complete",
+    }
+}
+
+/// Get the skill instruction text to embed in CLAUDE.md
+fn get_skill_instruction(status: &SessionStatus) -> Option<&'static str> {
+    match status {
+        SessionStatus::Backlog => Some(
+            "You are in SPARK mode. Your job is to:\n\
+             - Help the user brainstorm and explore the question space broadly\n\
+             - Gather source material and extract initial claims\n\
+             - Surface assumptions and identify what's actually being asked\n\
+             - Use semantic markers: [INSIGHT], [EVIDENCE], [RISK], [COUNTER]\n\
+             - When the user has enough material, suggest moving to Shape (exploring)"
+        ),
+        SessionStatus::Exploring => Some(
+            "You are in SHAPE mode. Your job is to:\n\
+             - Interview the user about their emerging positions\n\
+             - Ask probing questions to clarify what they actually believe\n\
+             - Help form distinct claims from fuzzy intuitions\n\
+             - Identify which claims are load-bearing vs peripheral\n\
+             - When positions are clear, suggest moving to Stress-Test (tensions)"
+        ),
+        SessionStatus::Tensions => Some(
+            "You are in STRESS-TEST mode. Your job is to:\n\
+             - Apply structured critique: inversion, second-order effects, falsification, base rates, incentive audit, adversary simulation\n\
+             - Surface genuine tensions between claims\n\
+             - Challenge the strongest-seeming conclusions hardest\n\
+             - Don't paper over contradictions — preserve them as signal\n\
+             - When key tensions are surfaced, suggest moving to Sharpen (synthesizing)"
+        ),
+        SessionStatus::Synthesizing => Some(
+            "You are in SHARPEN mode. Your job is to:\n\
+             - Resolve or acknowledge open tensions\n\
+             - Produce a thesis with a calibrated confidence score (0.0-1.0)\n\
+             - Define concrete revision triggers\n\
+             - Compress insights into a defensible position\n\
+             - When thesis is solid, suggest moving to Ship (formed)"
+        ),
+        SessionStatus::Formed => None,
+    }
+}
+
+/// Generate CLAUDE.md content for a session
+fn generate_claude_md(session: &Session, session_dir: &str) -> String {
+    let mut md = String::with_capacity(2048);
+
+    md.push_str("# Dialectic Session Context\n\n");
+    md.push_str(&format!("**Session:** {}\n", session.title));
+    md.push_str(&format!("**ID:** {}\n", session.id));
+    md.push_str(&format!("**Status:** {} ({})\n",
+        format!("{:?}", session.status).to_lowercase(),
+        get_skill_description(&session.status)
+    ));
+    md.push_str(&format!("**Mode:** {}\n", format!("{:?}", session.mode).to_lowercase()));
+    md.push_str(&format!("**Session dir:** {}\n", session_dir));
+    md.push_str(&format!("**Session data:** {}/session.json\n\n", session_dir));
+
+    // Active skill instruction
+    if let Some(instruction) = get_skill_instruction(&session.status) {
+        md.push_str("## Active Workflow\n\n");
+        md.push_str(instruction);
+        md.push_str("\n\n");
+    }
+
+    // Context files
+    if !session.context_files.is_empty() {
+        md.push_str("## Context Files\n\n");
+        for cf in &session.context_files {
+            md.push_str(&format!("- `{}` ({})\n", cf.filename, cf.path));
+        }
+        md.push_str("\n");
+    }
+
+    // Claims summary
+    if !session.claims.is_empty() {
+        md.push_str(&format!("## Claims ({} total)\n\n", session.claims.len()));
+        for claim in session.claims.iter().take(10) {
+            let marker = claim.marker.as_deref().unwrap_or("");
+            md.push_str(&format!("- {} {}\n", marker, claim.content));
+        }
+        if session.claims.len() > 10 {
+            md.push_str(&format!("- ... and {} more\n", session.claims.len() - 10));
+        }
+        md.push_str("\n");
+    }
+
+    // Open tensions
+    let open_tensions: Vec<_> = session.tensions.iter()
+        .filter(|t| t.resolution.is_none())
+        .collect();
+    if !open_tensions.is_empty() {
+        md.push_str(&format!("## Open Tensions ({} unresolved)\n\n", open_tensions.len()));
+        for tension in &open_tensions {
+            md.push_str(&format!("- {}\n", tension.description));
+        }
+        md.push_str("\n");
+    }
+
+    // Thesis preview
+    if let Some(thesis) = &session.thesis {
+        md.push_str(&format!("## Current Thesis (confidence: {:.0}%)\n\n", thesis.confidence * 100.0));
+        md.push_str(&thesis.content);
+        md.push_str("\n\n");
+    }
+
+    // Summary
+    if let Some(summary) = &session.summary {
+        md.push_str(&format!("## Summary\n\n{}\n\n", summary));
+    }
+
+    md.push_str("---\n");
+    md.push_str("*This file is auto-generated by Dialectic. Do not edit manually.*\n");
+
+    md
+}
+
+#[tauri::command]
+pub fn prepare_launch(app: AppHandle, session_id: String) -> Result<LaunchContext, SessionError> {
+    let session_path = get_session_json_path(&app, &session_id)?;
+    if !session_path.exists() {
+        return Err(SessionError::NotFound(session_id));
+    }
+
+    // Read and update session
+    let content = fs::read_to_string(&session_path)?;
+    let mut session: Session = serde_json::from_str(&content)?;
+    session.last_resumed = Some(Utc::now());
+    session.updated = Utc::now();
+    let updated_json = serde_json::to_string_pretty(&session)?;
+    atomic_write(&session_path, &updated_json)?;
+
+    // Resolve session directory
+    let session_dir = get_session_dir(&app, &session_id)?;
+    let session_dir_str = session_dir.to_string_lossy().to_string();
+
+    // Ensure session directory exists (defensive against external deletion)
+    fs::create_dir_all(&session_dir)?;
+
+    // Generate and write CLAUDE.md atomically (temp + rename to prevent truncation on crash)
+    let claude_md = generate_claude_md(&session, &session_dir_str);
+    let claude_md_path = session_dir.join("CLAUDE.md");
+    let claude_md_tmp = session_dir.join("CLAUDE.md.tmp");
+    fs::write(&claude_md_tmp, &claude_md)?;
+    fs::rename(&claude_md_tmp, &claude_md_path)?;
+
+    // Build claude command
+    let mut claude_command = vec!["claude".to_string()];
+    if let Some(ref conv_id) = session.conversation_id {
+        // Validate conversation_id contains only safe characters (alphanumeric, dash, underscore)
+        // to prevent shell metacharacter injection when the command is written to the PTY
+        if !conv_id.is_empty() && conv_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            claude_command.push("--resume".to_string());
+            claude_command.push(conv_id.clone());
+        }
+    }
+    // For project-local sessions, add --add-dir so Claude discovers session CLAUDE.md
+    if session.is_project_local {
+        claude_command.push("--add-dir".to_string());
+        claude_command.push(session_dir_str.clone());
+    }
+
+    // Build env vars
+    let mut env_vars = HashMap::new();
+    env_vars.insert("DIALECTIC_SESSION_ID".to_string(), session.id.clone());
+    env_vars.insert("DIALECTIC_SESSION_DIR".to_string(), session_dir_str.clone());
+
+    // Determine working directory
+    let working_dir = if session.is_project_local {
+        session.working_dir.clone()
+    } else {
+        session_dir_str.clone()
+    };
+
+    Ok(LaunchContext {
+        working_dir,
+        session_dir: session_dir_str,
+        conversation_id: session.conversation_id.clone(),
+        claude_command,
+        env_vars,
+    })
 }

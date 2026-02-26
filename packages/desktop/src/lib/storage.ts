@@ -116,6 +116,7 @@ interface RustSession {
   passes: unknown[]
   contextFiles: unknown[]
   thesis?: { content: string; confidence: number; updatedAt: string }
+  conversationId?: string
   category?: string
   summary?: string
 }
@@ -147,7 +148,22 @@ export function mapRustSession(rs: RustSession): Session {
     contextFileCount: rs.contextFiles?.length ?? 0,
     isProjectLocal: rs.isProjectLocal,
     workingDir: rs.workingDir,
+    conversationId: rs.conversationId,
     thesisPreview: rs.thesis?.content?.slice(0, 80),
+  }
+}
+
+/**
+ * Load a single session by ID from the Rust backend.
+ * Used by the watcher event handler to reload a session after file changes.
+ */
+export async function loadSessionFromRust(sessionId: string): Promise<Session | null> {
+  try {
+    const rs = await invoke<RustSession>('load_session', { sessionId })
+    return mapRustSession(rs)
+  } catch (err) {
+    console.warn('Failed to load session from Rust:', err)
+    return null
   }
 }
 
@@ -209,6 +225,24 @@ export async function deleteSessionViaRust(sessionId: string): Promise<boolean> 
     console.error('deleteSessionViaRust failed:', err)
     return false
   }
+}
+
+// --- Launch Pipeline ---
+
+export interface LaunchContext {
+  workingDir: string
+  sessionDir: string
+  conversationId: string | null
+  claudeCommand: string[]
+  envVars: Record<string, string>
+}
+
+/**
+ * Prepare a session for launching Claude Code.
+ * Writes CLAUDE.md to session dir, updates last_resumed, returns launch context.
+ */
+export async function prepareLaunch(sessionId: string): Promise<LaunchContext> {
+  return invoke<LaunchContext>('prepare_launch', { sessionId })
 }
 
 /**

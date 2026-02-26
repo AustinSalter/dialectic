@@ -39,6 +39,7 @@ pub struct TerminalConfig {
     pub args: Option<Vec<String>>,
     pub cols: u16,
     pub rows: u16,
+    pub env: Option<HashMap<String, String>>,
 }
 
 /// Terminal state
@@ -171,6 +172,13 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "dialectic");
     cmd.env("LANG", std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".to_string()));
+
+    // Inject custom environment variables from config
+    if let Some(env_vars) = &config.env {
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+    }
 
     // Spawn child process
     let child = pair

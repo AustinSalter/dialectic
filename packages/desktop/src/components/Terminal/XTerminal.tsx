@@ -55,11 +55,13 @@ interface XTerminalProps {
   sessionId: string
   workingDir: string
   onClose?: () => void
-  /** Command to inject after terminal spawns (e.g., "/brief resume <id>") */
+  /** Command to inject after terminal spawns (e.g., "claude --resume <id>") */
   initialCommand?: string
+  /** Extra environment variables to set in the terminal */
+  envVars?: Record<string, string>
 }
 
-export function XTerminal({ sessionId, workingDir, onClose, initialCommand }: XTerminalProps) {
+export function XTerminal({ sessionId, workingDir, onClose, initialCommand, envVars }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -167,6 +169,7 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand }: XT
       workingDir,
       cols,
       rows,
+      env: envVars,
     }
 
     spawn(config)
@@ -185,7 +188,7 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand }: XT
         setLoadError(err instanceof Error ? err.message : String(err))
         setIsLoading(false)
       })
-  }, [sessionId, workingDir, spawn, write, initialCommand])
+  }, [sessionId, workingDir, spawn, write, initialCommand, envVars])
 
   // Handle resize with debouncing
   useEffect(() => {
