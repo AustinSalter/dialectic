@@ -9,6 +9,7 @@ use tracing::{info, warn, debug};
 use ulid::Ulid;
 
 use crate::cdg::{CdgEdge, CdgSnapshot};
+use crate::chroma::search::RelatedSessionResults;
 use crate::context::{ContextBudget, SessionClassification, PaperTrail};
 
 #[derive(Error, Debug)]
@@ -188,6 +189,9 @@ pub struct Session {
     pub last_resumed: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
 
     // Content
     #[serde(default)]
@@ -236,6 +240,14 @@ pub struct CreateSessionInput {
     pub working_dir: Option<String>,
     pub category: Option<String>,
     pub summary: Option<String>,
+}
+
+/// Input for forking an existing session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkSessionInput {
+    pub source_session_id: String,
+    pub title: Option<String>,
 }
 
 /// Get the app data directory path from AppHandle (Tauri)
@@ -439,6 +451,7 @@ pub fn create_session(app: AppHandle, input: CreateSessionInput) -> Result<Sessi
         updated: now,
         last_resumed: None,
         conversation_id: None,
+        parent_session_id: None,
         context_files: Vec::new(),
         claims: Vec::new(),
         tensions: Vec::new(),
@@ -531,6 +544,74 @@ pub fn delete_session(app: AppHandle, session_id: String) -> Result<(), SessionE
     Ok(())
 }
 
+#[tauri::command]
+pub fn fork_session(app: AppHandle, input: ForkSessionInput) -> Result<Session, SessionError> {
+    validate_session_id(&input.source_session_id)?;
+
+    // Load source session
+    let source_path = get_session_json_path(&app, &input.source_session_id)?;
+    if !source_path.exists() {
+        return Err(SessionError::NotFound(input.source_session_id));
+    }
+    let source_content = fs::read_to_string(&source_path)?;
+    let source: Session = serde_json::from_str(&source_content)?;
+
+    let new_id = Ulid::new().to_string();
+    let now = Utc::now();
+    let title = input.title.unwrap_or_else(|| format!("{} (fork)", source.title));
+
+    let forked = Session {
+        id: new_id.clone(),
+        title,
+        status: SessionStatus::Backlog,
+        mode: source.mode.clone(),
+        working_dir: source.working_dir.clone(),
+        is_project_local: source.is_project_local,
+        created: now,
+        updated: now,
+        last_resumed: None,
+        conversation_id: None,
+        parent_session_id: Some(source.id.clone()),
+        // Deep-clone structured state
+        context_files: source.context_files.clone(),
+        claims: source.claims.clone(),
+        tensions: source.tensions.clone(),
+        thesis: source.thesis.clone(),
+        reference_docs: source.reference_docs.clone(),
+        cdg_edges: source.cdg_edges.clone(),
+        category: source.category.clone(),
+        summary: source.summary.clone(),
+        // Reset transient state
+        passes: Vec::new(),
+        terminal: TerminalState::default(),
+        context_budget: Some(ContextBudget::new(SessionClassification::NetNew)),
+        paper_trail: Some(PaperTrail::default()),
+        cdg_snapshots: Vec::new(),
+    };
+
+    // Create session directory structure
+    let session_dir = get_session_dir(&app, &new_id)?;
+    fs::create_dir_all(&session_dir)?;
+    fs::create_dir_all(session_dir.join("context"))?;
+    fs::create_dir_all(session_dir.join("claims"))?;
+    fs::create_dir_all(session_dir.join("tensions"))?;
+    fs::create_dir_all(session_dir.join("thesis"))?;
+
+    // Write session.json atomically
+    let session_json = serde_json::to_string_pretty(&forked)?;
+    atomic_write(&session_dir.join("session.json"), &session_json)?;
+
+    info!(
+        new_id = %new_id,
+        parent_id = %source.id,
+        claims_carried = forked.claims.len(),
+        tensions_carried = forked.tensions.len(),
+        "Forked session"
+    );
+
+    Ok(forked)
+}
+
 // ============ LAUNCH PIPELINE ============
 
 /// Response from prepare_launch — everything the frontend needs to spawn a terminal
@@ -595,7 +676,7 @@ fn get_skill_instruction(status: &SessionStatus) -> Option<&'static str> {
 }
 
 /// Generate CLAUDE.md content for a session
-fn generate_claude_md(session: &Session, session_dir: &str) -> String {
+fn generate_claude_md(session: &Session, session_dir: &str, related_context: Option<&RelatedSessionResults>) -> String {
     let mut md = String::with_capacity(2048);
 
     md.push_str("# Dialectic Session Context\n\n");
@@ -662,6 +743,25 @@ fn generate_claude_md(session: &Session, session_dir: &str) -> String {
         md.push_str(&format!("## Summary\n\n{}\n\n", summary));
     }
 
+    // Lineage (when session was forked)
+    if let Some(parent_id) = &session.parent_session_id {
+        md.push_str("## Lineage\n\n");
+        md.push_str(&format!("This session was forked from parent session `{}`.\n", parent_id));
+        md.push_str("Claims, tensions, and thesis were carried forward. The conversation is fresh.\n\n");
+    }
+
+    // Related Prior Work (from Chroma cross-session search)
+    if let Some(related) = related_context {
+        if !related.hits.is_empty() {
+            md.push_str("## Related Prior Work\n\n");
+            md.push_str("The following sessions contain related material:\n\n");
+            for hit in related.hits.iter().take(5) {
+                md.push_str(&format!("- **{}** ({}): {}\n", hit.session_id, hit.collection, hit.snippet));
+            }
+            md.push_str("\n");
+        }
+    }
+
     md.push_str("---\n");
     md.push_str("*This file is auto-generated by Dialectic. Do not edit manually.*\n");
 
@@ -669,35 +769,70 @@ fn generate_claude_md(session: &Session, session_dir: &str) -> String {
 }
 
 #[tauri::command]
-pub fn prepare_launch(app: AppHandle, session_id: String) -> Result<LaunchContext, SessionError> {
+pub async fn prepare_launch(app: AppHandle, session_id: String) -> Result<LaunchContext, SessionError> {
+    // Path computation (no I/O)
     let session_path = get_session_json_path(&app, &session_id)?;
-    if !session_path.exists() {
-        return Err(SessionError::NotFound(session_id));
-    }
-
-    // Read and update session
-    let content = fs::read_to_string(&session_path)?;
-    let mut session: Session = serde_json::from_str(&content)?;
-    session.last_resumed = Some(Utc::now());
-    session.updated = Utc::now();
-    let updated_json = serde_json::to_string_pretty(&session)?;
-    atomic_write(&session_path, &updated_json)?;
-
-    // Resolve session directory
     let session_dir = get_session_dir(&app, &session_id)?;
     let session_dir_str = session_dir.to_string_lossy().to_string();
 
-    // Ensure session directory exists (defensive against external deletion)
-    fs::create_dir_all(&session_dir)?;
+    // Phase 1: Read and update session (blocking file I/O on dedicated threadpool)
+    let session = {
+        let path = session_path;
+        let dir = session_dir.clone();
+        let sid = session_id.clone();
+        tokio::task::spawn_blocking(move || -> Result<Session, SessionError> {
+            if !path.exists() {
+                return Err(SessionError::NotFound(sid));
+            }
+            let content = fs::read_to_string(&path)?;
+            let mut session: Session = serde_json::from_str(&content)?;
+            session.last_resumed = Some(Utc::now());
+            session.updated = Utc::now();
+            let updated_json = serde_json::to_string_pretty(&session)?;
+            atomic_write(&path, &updated_json)?;
+            // Ensure session directory exists (defensive against external deletion)
+            fs::create_dir_all(&dir)?;
+            Ok(session)
+        })
+        .await
+        .map_err(|e| SessionError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))??
+    };
 
-    // Generate and write CLAUDE.md atomically (temp + rename to prevent truncation on crash)
-    let claude_md = generate_claude_md(&session, &session_dir_str);
-    let claude_md_path = session_dir.join("CLAUDE.md");
-    let claude_md_tmp = session_dir.join("CLAUDE.md.tmp");
-    fs::write(&claude_md_tmp, &claude_md)?;
-    fs::rename(&claude_md_tmp, &claude_md_path)?;
+    // Phase 2: Best-effort Chroma search for related sessions (async, non-blocking)
+    let related_context = match crate::chroma::search::search_related_sessions(
+        &session.title,
+        session.summary.as_deref(),
+        &session.id,
+        5,
+    ).await {
+        Ok(results) if !results.hits.is_empty() => {
+            debug!(hits = results.hits.len(), "Found related sessions for launch context");
+            Some(results)
+        }
+        Ok(_) => None,
+        Err(e) => {
+            warn!(error = %e, "Related session search failed (Chroma may be offline), proceeding without");
+            None
+        }
+    };
 
-    // Build claude command
+    // Phase 3: Generate CLAUDE.md (pure) and write atomically (blocking I/O)
+    let claude_md = generate_claude_md(&session, &session_dir_str, related_context.as_ref());
+    {
+        let dir = session_dir;
+        let content = claude_md;
+        tokio::task::spawn_blocking(move || -> Result<(), SessionError> {
+            let tmp = dir.join("CLAUDE.md.tmp");
+            let target = dir.join("CLAUDE.md");
+            fs::write(&tmp, &content)?;
+            fs::rename(&tmp, &target)?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| SessionError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))??;
+    }
+
+    // Phase 4: Build response (pure computation, no I/O)
     let mut claude_command = vec!["claude".to_string()];
     if let Some(ref conv_id) = session.conversation_id {
         // Validate conversation_id contains only safe characters (alphanumeric, dash, underscore)
@@ -713,12 +848,10 @@ pub fn prepare_launch(app: AppHandle, session_id: String) -> Result<LaunchContex
         claude_command.push(session_dir_str.clone());
     }
 
-    // Build env vars
     let mut env_vars = HashMap::new();
     env_vars.insert("DIALECTIC_SESSION_ID".to_string(), session.id.clone());
     env_vars.insert("DIALECTIC_SESSION_DIR".to_string(), session_dir_str.clone());
 
-    // Determine working directory
     let working_dir = if session.is_project_local {
         session.working_dir.clone()
     } else {

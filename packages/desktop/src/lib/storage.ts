@@ -117,6 +117,7 @@ interface RustSession {
   contextFiles: unknown[]
   thesis?: { content: string; confidence: number; updatedAt: string }
   conversationId?: string
+  parentSessionId?: string
   category?: string
   summary?: string
 }
@@ -149,6 +150,7 @@ export function mapRustSession(rs: RustSession): Session {
     isProjectLocal: rs.isProjectLocal,
     workingDir: rs.workingDir,
     conversationId: rs.conversationId,
+    parentSessionId: rs.parentSessionId,
     thesisPreview: rs.thesis?.content?.slice(0, 80),
   }
 }
@@ -224,6 +226,26 @@ export async function deleteSessionViaRust(sessionId: string): Promise<boolean> 
   } catch (err) {
     console.error('deleteSessionViaRust failed:', err)
     return false
+  }
+}
+
+/**
+ * Fork a session via Rust. Creates a new session inheriting structured state
+ * (claims, tensions, thesis) from the source, with a fresh conversation.
+ * Returns the mapped forked Session or null on failure.
+ */
+export async function forkSessionViaRust(sourceSessionId: string, title?: string): Promise<Session | null> {
+  try {
+    const rs = await invoke<RustSession>('fork_session', {
+      input: {
+        sourceSessionId,
+        title: title ?? null,
+      },
+    })
+    return mapRustSession(rs)
+  } catch (err) {
+    console.error('forkSessionViaRust failed:', err)
+    return null
   }
 }
 

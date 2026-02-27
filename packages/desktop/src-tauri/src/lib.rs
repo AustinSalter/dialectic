@@ -26,7 +26,7 @@ pub use obsidian::query::{QueryResult, MatchType, NoteContent, query_notes, get_
 pub use obsidian::indexer::{NoteIndex, VaultIndex, ObsidianError, IndexStats, configure_vault, index_vault, get_vault_index};
 
 pub use session::{
-    Session, SessionStatus, SessionMode, SessionError,
+    Session, SessionStatus, SessionMode, SessionError, ForkSessionInput,
     get_app_data_dir_cli, get_session_dir_cli, load_session_cli, list_sessions_cli,
     save_session_cli,
 };

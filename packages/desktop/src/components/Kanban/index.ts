@@ -19,6 +19,7 @@ export interface Session {
   createdAt: Date
   updatedAt: Date
   // Fields from Rust backend
+  parentSessionId?: string
   conversationId?: string
   passCount: number
   confidenceScore?: number

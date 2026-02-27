@@ -27,9 +27,10 @@ interface BoardViewProps {
   onMoveSession: (sessionId: string, newState: SessionState) => void
   onOpenSession?: (sessionId: string, state: SessionState) => void
   onDeleteSession?: (sessionId: string) => void
+  onForkSession?: (sessionId: string) => void
 }
 
-export function BoardView({ sessions, onMoveSession, onOpenSession, onDeleteSession }: BoardViewProps) {
+export function BoardView({ sessions, onMoveSession, onOpenSession, onDeleteSession, onForkSession }: BoardViewProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
   const sensors = useSensors(
@@ -77,6 +78,7 @@ export function BoardView({ sessions, onMoveSession, onOpenSession, onDeleteSess
             sessions={getSessionsByState(state)}
             onOpenSession={onOpenSession}
             onDeleteSession={onDeleteSession}
+            onForkSession={onForkSession}
           />
         ))}
       </div>

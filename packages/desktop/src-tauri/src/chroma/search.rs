@@ -3,6 +3,7 @@
 //! Multi-step iterative search across Chroma collections.
 //! Plan → Execute → Evaluate → Iterate → Synthesize
 
+use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -237,7 +238,118 @@ pub async fn search_document(
     Ok(hits)
 }
 
+/// A hit from cross-session related search
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedSessionHit {
+    pub session_id: String,
+    pub snippet: String,
+    pub collection: String,
+    pub relevance: f32,
+}
+
+/// Results from searching for related sessions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedSessionResults {
+    pub hits: Vec<RelatedSessionHit>,
+    pub query_used: String,
+}
+
+/// Search for sessions related to a given title + summary.
+/// Queries memory collections and documents, deduplicates by session_id,
+/// and excludes the current session.
+pub async fn search_related_sessions(
+    title: &str,
+    summary: Option<&str>,
+    exclude_session_id: &str,
+    n_results: u32,
+) -> Result<RelatedSessionResults, SearchError> {
+    // Build query from title + summary, capped to avoid oversized embedding requests
+    let query: String = match summary {
+        Some(s) if !s.is_empty() => format!("{} {}", title, s),
+        _ => title.to_string(),
+    }.chars().take(500).collect();
+
+    debug!(query = %query, exclude = %exclude_session_id, "Searching related sessions");
+
+    // Search memory collections (no session filter) + documents collection
+    let memory_collections = vec![
+        COLLECTION_MEMORY_SEMANTIC.to_string(),
+        COLLECTION_MEMORY_PROCEDURAL.to_string(),
+        COLLECTION_MEMORY_EPISODIC.to_string(),
+    ];
+
+    let memory_results = search_all(&query, n_results, None, Some(memory_collections)).await;
+    let doc_results = search_all(&query, n_results, None, Some(vec![COLLECTION_DOCUMENTS.to_string()])).await;
+
+    let mut seen_sessions = HashSet::new();
+    seen_sessions.insert(exclude_session_id.to_string());
+    let mut hits = Vec::new();
+
+    // Process memory results
+    if let Ok(memory) = memory_results {
+        for hit in memory.hits {
+            let sid = hit.metadata.get("session_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !sid.is_empty() && seen_sessions.insert(sid.clone()) {
+                let snippet: String = hit.document.chars().take(120).collect();
+                hits.push(RelatedSessionHit {
+                    session_id: sid,
+                    snippet,
+                    collection: hit.collection,
+                    relevance: hit.relevance,
+                });
+            }
+        }
+    }
+
+    // Process document results
+    if let Ok(docs) = doc_results {
+        for hit in docs.hits {
+            let sid = hit.metadata.get("session_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !sid.is_empty() && seen_sessions.insert(sid.clone()) {
+                let snippet: String = hit.document.chars().take(120).collect();
+                hits.push(RelatedSessionHit {
+                    session_id: sid,
+                    snippet,
+                    collection: hit.collection,
+                    relevance: hit.relevance,
+                });
+            }
+        }
+    }
+
+    // Sort by relevance descending and truncate
+    hits.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal));
+    hits.truncate(n_results as usize);
+
+    info!(hits = hits.len(), query_len = query.len(), "Related session search complete");
+
+    Ok(RelatedSessionResults {
+        hits,
+        query_used: query,
+    })
+}
+
 // ============ TAURI COMMANDS ============
+
+#[tauri::command]
+pub async fn chroma_search_related_sessions(
+    title: String,
+    summary: Option<String>,
+    exclude_session_id: String,
+    n_results: u32,
+) -> Result<RelatedSessionResults, SearchError> {
+    crate::session::validate_session_id(&exclude_session_id)
+        .map_err(|_| SearchError::Chroma(ChromaError::InvalidInput("Invalid session ID".to_string())))?;
+    search_related_sessions(&title, summary.as_deref(), &exclude_session_id, n_results).await
+}
 
 #[tauri::command]
 pub async fn chroma_search_all(

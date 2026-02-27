@@ -40,6 +40,7 @@ fn main() {
             session::get_app_data_dir,
             session::get_skills_dir,
             session::prepare_launch,
+            session::fork_session,
             // Terminal commands
             terminal::spawn_terminal,
             terminal::write_to_terminal,
@@ -100,6 +101,7 @@ fn main() {
             chroma::search::chroma_search_all,
             chroma::search::chroma_search_session,
             chroma::search::chroma_search_document,
+            chroma::search::chroma_search_related_sessions,
             // Chroma commands — memory
             chroma::memory::chroma_write_memory,
             chroma::memory::chroma_read_memories,

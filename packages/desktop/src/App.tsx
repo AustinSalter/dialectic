@@ -18,7 +18,7 @@ import { LeftRail, RightRail, type FileNode } from './components/Rails'
 import { NotesPanel, type Note } from './components/Notes'
 import { DocumentViewer, type DocumentContent } from './components/DocumentViewer'
 import type { Session, SessionState, SessionCategory } from './components/Kanban'
-import { loadSessionsFromRust, loadSessionFromRust, saveSessions, moveSessionViaRust, deleteSessionViaRust, createSessionViaRust, prepareLaunch } from './lib/storage'
+import { loadSessionsFromRust, loadSessionFromRust, saveSessions, moveSessionViaRust, deleteSessionViaRust, createSessionViaRust, forkSessionViaRust, prepareLaunch } from './lib/storage'
 import { useSessionWatcher } from './hooks/useSessionWatcher'
 import { pickFolder } from './lib/folderPicker'
 
@@ -523,6 +523,17 @@ function App() {
     setActiveWindowId(sessionId)
   }, [])
 
+  // Fork a session — create a new session inheriting claims/tensions/thesis
+  const handleForkSession = useCallback(async (sessionId: string) => {
+    const forked = await forkSessionViaRust(sessionId)
+    if (forked) {
+      setSessions((prev) => [...prev, forked])
+      handleOpenSession(forked.id)
+    } else {
+      console.warn('Fork failed for session', sessionId, '— check console for details')
+    }
+  }, [handleOpenSession])
+
   // Close a session window
   const handleCloseSession = useCallback((sessionId: string) => {
     // Kill terminal if it was a terminal session
@@ -796,6 +807,7 @@ To complete this integration:
           onMoveSession={handleMoveSession}
           onOpenSession={handleOpenSession}
           onDeleteSession={handleDeleteSession}
+          onForkSession={handleForkSession}
         />
       )}
 

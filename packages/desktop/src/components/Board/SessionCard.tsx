@@ -33,9 +33,10 @@ interface SessionCardProps {
   session: Session
   onClick?: () => void
   onDelete?: (sessionId: string) => void
+  onFork?: (sessionId: string) => void
 }
 
-export function SessionCard({ session, onClick, onDelete }: SessionCardProps) {
+export function SessionCard({ session, onClick, onDelete, onFork }: SessionCardProps) {
   const {
     attributes,
     listeners,
@@ -66,6 +67,15 @@ export function SessionCard({ session, onClick, onDelete }: SessionCardProps) {
     }
   }
 
+  // Handle fork with stop propagation
+  const handleFork = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (onFork) {
+      onFork(session.id)
+    }
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -75,6 +85,17 @@ export function SessionCard({ session, onClick, onDelete }: SessionCardProps) {
       {...attributes}
       {...listeners}
     >
+      {/* Fork button */}
+      {onFork && (
+        <button
+          className={styles.forkButton}
+          onClick={handleFork}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="Fork session"
+        >
+          &#x2442;
+        </button>
+      )}
       {/* Delete button */}
       {onDelete && (
         <button

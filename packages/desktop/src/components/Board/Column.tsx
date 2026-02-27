@@ -27,9 +27,10 @@ interface ColumnProps {
   sessions: Session[]
   onOpenSession?: (sessionId: string, state: SessionState) => void
   onDeleteSession?: (sessionId: string) => void
+  onForkSession?: (sessionId: string) => void
 }
 
-export function Column({ state, sessions, onOpenSession, onDeleteSession }: ColumnProps) {
+export function Column({ state, sessions, onOpenSession, onDeleteSession, onForkSession }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: state })
   const { label } = stateLabels[state]
 
@@ -58,6 +59,7 @@ export function Column({ state, sessions, onOpenSession, onDeleteSession }: Colu
                 session={session}
                 onClick={() => onOpenSession?.(session.id, state)}
                 onDelete={onDeleteSession}
+                onFork={onForkSession}
               />
             ))
           )}
