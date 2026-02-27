@@ -113,6 +113,27 @@ pub fn obsidian_chunk_metadata(
     })
 }
 
+/// Build metadata for an Obsidian note chunk (with chunk_index for multi-chunk notes)
+pub fn obsidian_chunk_metadata_indexed(
+    path: &str,
+    title: &str,
+    tags: &[String],
+    token_count: u32,
+    modified: &str,
+    chunk_index: u32,
+    total_chunks: u32,
+) -> Value {
+    json!({
+        "path": path,
+        "title": title,
+        "tags": tags.join(","),
+        "token_count": token_count as i64,
+        "modified": modified,
+        "chunk_index": chunk_index as i64,
+        "total_chunks": total_chunks as i64,
+    })
+}
+
 /// Build a chunk ID from components
 pub fn chunk_id(collection: &str, doc_id: &str, chunk_index: u32) -> String {
     format!("{}_{}_{}", collection, doc_id, chunk_index)

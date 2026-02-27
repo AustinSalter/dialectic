@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 
 use crate::session::Session;
+use crate::context::budget::ThresholdStatus;
 use crate::chroma::memory::extract_session_markers;
 
 #[derive(Error, Debug)]
@@ -59,6 +60,17 @@ pub struct SessionUpdatedEvent {
     pub change_type: String,
 }
 
+/// Budget alert payload sent to frontend when threshold is exceeded
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BudgetAlertPayload {
+    pub session_id: String,
+    pub status: String,
+    pub percentage: u8,
+    pub used: u32,
+    pub total: u32,
+}
+
 #[tauri::command]
 pub fn watch_session(app: AppHandle, session_id: String) -> Result<(), WatcherError> {
     // Check if already watching (short lock)
@@ -100,9 +112,35 @@ pub fn watch_session(app: AppHandle, session_id: String) -> Result<(), WatcherEr
                             tracing::warn!(session_id = %session_id_clone, error = %e, "Failed to emit session-updated event");
                         }
 
-                        // Extract semantic markers to Chroma (best-effort, async)
+                        // Process session.json changes: budget alerts + semantic markers
                         if let Ok(content) = fs::read_to_string(path) {
                             if let Ok(session) = serde_json::from_str::<Session>(&content) {
+                                // Check context budget and emit alert if threshold exceeded
+                                if let Some(ref budget) = session.context_budget {
+                                    let status = budget.threshold_status();
+                                    if status != ThresholdStatus::Normal {
+                                        let total = budget.paper_trail_budget + budget.obsidian_budget + budget.reference_budget;
+                                        let alert = BudgetAlertPayload {
+                                            session_id: session_id_clone.clone(),
+                                            status: match status {
+                                                ThresholdStatus::Normal => "normal",
+                                                ThresholdStatus::AutoCompress => "auto_compress",
+                                                ThresholdStatus::WarnUser => "warn_user",
+                                                ThresholdStatus::ForceCompress => "force_compress",
+                                            }.to_string(),
+                                            percentage: budget.usage_percentage(),
+                                            used: budget.total_used(),
+                                            total,
+                                        };
+                                        let alert_event = format!("budget-alert-{}", session_id_clone);
+                                        tracing::info!(session_id = %session_id_clone, status = %alert.status, pct = alert.percentage, "Budget threshold exceeded");
+                                        if let Err(e) = app_clone.emit(&alert_event, alert) {
+                                            tracing::warn!(error = %e, "Failed to emit budget alert");
+                                        }
+                                    }
+                                }
+
+                                // Extract semantic markers to Chroma (best-effort, async)
                                 let has_markers = session.claims.iter().any(|c| c.marker.is_some());
                                 let has_unresolved = session.tensions.iter().any(|t| t.resolution.is_none());
                                 let has_thesis = session.thesis.is_some();

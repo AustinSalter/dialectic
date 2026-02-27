@@ -869,3 +869,110 @@ pub async fn prepare_launch(app: AppHandle, session_id: String) -> Result<Launch
         env_vars,
     })
 }
+
+/// Compute the Claude Code project directory path for a given working directory.
+/// Claude Code encodes paths by replacing `/` with `-`.
+fn claude_code_project_dir(working_dir: &str) -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    // Claude Code encodes the absolute path: /Users/foo/bar → -Users-foo-bar
+    let encoded = working_dir.replace('/', "-");
+    Some(home.join(".claude").join("projects").join(encoded))
+}
+
+#[tauri::command]
+pub async fn capture_conversation_id(
+    app: AppHandle,
+    session_id: String,
+) -> Result<Option<String>, SessionError> {
+    validate_session_id(&session_id)?;
+    let session_path = get_session_json_path(&app, &session_id)?;
+
+    // Read session to get working_dir
+    let session: Session = {
+        let content = fs::read_to_string(&session_path)
+            .map_err(|_| SessionError::NotFound(session_id.clone()))?;
+        serde_json::from_str(&content)?
+    };
+
+    // Already has a conversation ID
+    if session.conversation_id.is_some() {
+        return Ok(session.conversation_id);
+    }
+
+    // Determine the effective working dir (same logic as prepare_launch)
+    let effective_dir = if session.is_project_local {
+        session.working_dir.clone()
+    } else {
+        let session_dir = get_session_dir(&app, &session_id)?;
+        session_dir.to_string_lossy().to_string()
+    };
+
+    let project_dir = claude_code_project_dir(&effective_dir)
+        .ok_or_else(|| SessionError::InvalidPath("Cannot determine home directory".to_string()))?;
+
+    if !project_dir.exists() {
+        debug!(session_id = %session_id, dir = %project_dir.display(), "Claude Code project dir not found");
+        return Ok(None);
+    }
+
+    // Find the most recently modified .jsonl file
+    let newest = tokio::task::spawn_blocking(move || -> Option<String> {
+        let mut newest_time = std::time::SystemTime::UNIX_EPOCH;
+        let mut newest_id: Option<String> = None;
+
+        let entries = fs::read_dir(&project_dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        if modified > newest_time {
+                            newest_time = modified;
+                            newest_id = path.file_stem()
+                                .map(|s| s.to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        newest_id
+    })
+    .await
+    .map_err(|e| SessionError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+
+    let conv_id = match newest {
+        Some(id) => id,
+        None => {
+            debug!(session_id = %session_id, "No Claude Code conversation files found");
+            return Ok(None);
+        }
+    };
+
+    // Validate the conversation ID looks like a UUID (safe chars only)
+    if !conv_id.chars().all(|c| c.is_alphanumeric() || c == '-') {
+        warn!(session_id = %session_id, conv_id = %conv_id, "Conversation ID contains invalid characters");
+        return Ok(None);
+    }
+
+    // Write it back to session.json
+    {
+        let path = session_path.clone();
+        let sid = session_id.clone();
+        let cid = conv_id.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), SessionError> {
+            let content = fs::read_to_string(&path)?;
+            let mut session: Session = serde_json::from_str(&content)?;
+            session.conversation_id = Some(cid.clone());
+            session.updated = Utc::now();
+            let updated = serde_json::to_string_pretty(&session)?;
+            atomic_write(&path, &updated)?;
+            info!(session_id = %sid, conversation_id = %cid, "Captured conversation ID");
+            Ok(())
+        })
+        .await
+        .map_err(|e| SessionError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))??;
+    }
+
+    Ok(Some(conv_id))
+}

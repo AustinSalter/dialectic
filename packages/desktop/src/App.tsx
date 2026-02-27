@@ -360,9 +360,20 @@ function App() {
     setDocumentZIndex(nextZIndex++)
   }, [])
 
-  const handleAddDocumentToSession = useCallback((documentId: string) => {
-    // Add document reference to active session's messages
+  const handleAddDocumentToSession = useCallback(async (documentId: string) => {
+    // Add document reference to active session's messages and index to Chroma
     if (activeWindowId && loadedDocument && loadedDocument.id === documentId) {
+      // Index document to Chroma via Rust backend (best-effort)
+      try {
+        await invoke('documents_add_reference', {
+          sessionId: activeWindowId,
+          path: loadedDocument.path,
+          persistence: 'cached',
+        })
+      } catch (err) {
+        console.warn('Failed to index document to Chroma:', err)
+      }
+
       setOpenWindows((prev) => {
         const updated = new Map(prev)
         const existing = updated.get(activeWindowId)
@@ -591,7 +602,7 @@ function App() {
   }, [])
 
   // Add a message to a session's conversation
-  // TODO: Replace with actual Claude API integration
+  // Chat mode is secondary to terminal mode — messages are stored locally for context
   const handleSessionMessage = useCallback((sessionId: string, message: string) => {
     if (!message.trim()) return
 
@@ -603,14 +614,8 @@ function App() {
           ...existing.messages,
           { role: 'user' as const, content: message },
         ]
-        // Set thinking state
         updated.set(sessionId, { ...existing, messages: newMessages, isThinking: true })
 
-        // PLACEHOLDER: This is where Claude API would be called
-        // In production, this would:
-        // 1. Send message to Claude API
-        // 2. Stream response back
-        // 3. Handle tool calls (like AskUserQuestion)
         setTimeout(() => {
           setOpenWindows((p) => {
             const u = new Map(p)
@@ -623,21 +628,14 @@ function App() {
                   ...e.messages,
                   {
                     role: 'assistant' as const,
-                    content: `*[API integration pending]*
-
-This is where Claude would respond to your message. The conversation UI is ready - it just needs to be connected to the Claude API.
-
-To complete this integration:
-- Wire up \`handleSessionMessage\` to call Claude's messages API
-- Handle streaming responses for real-time text display
-- Support tool use (like dialectic's thesis analysis tools)`,
+                    content: `Your note has been saved to this session's context. To interact with Claude, click the session card on the Kanban board to open a terminal session. Claude Code runs in the terminal with full access to your session's claims, tensions, and thesis.`,
                   },
                 ],
               })
             }
             return u
           })
-        }, 1200)
+        }, 300)
       }
       return updated
     })

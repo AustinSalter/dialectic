@@ -9,6 +9,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { invoke } from '@tauri-apps/api/core'
 import { useTerminal, type TerminalConfig } from '../../hooks/useTerminal'
 import { SyncAwareOutputBatcher, cleanupOnProcessExit, TUIDiagnostics } from '../../lib/tui-diagnostics'
 import styles from './XTerminal.module.css'
@@ -16,6 +17,10 @@ import styles from './XTerminal.module.css'
 // Delay before injecting initial command to allow shell to initialize
 // This accounts for shell startup time (loading .zshrc/.bashrc, etc.)
 const SHELL_INIT_DELAY_MS = 500
+
+// Delay before attempting to capture Claude Code's conversation ID.
+// Claude Code needs time to start up and create its session file.
+const CONVERSATION_CAPTURE_DELAY_MS = 8000
 
 // Debounce delay for resize events to avoid flooding the PTY during animated resizing
 const RESIZE_DEBOUNCE_MS = 150
@@ -182,6 +187,19 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand, envV
               console.error('Failed to write initial command:', err)
             })
           }, SHELL_INIT_DELAY_MS)
+
+          // Capture Claude Code's conversation ID after it has time to start
+          setTimeout(() => {
+            invoke('capture_conversation_id', { sessionId })
+              .then((convId) => {
+                if (convId) {
+                  console.log('Captured conversation ID:', convId)
+                }
+              })
+              .catch((err) => {
+                console.warn('Failed to capture conversation ID:', err)
+              })
+          }, CONVERSATION_CAPTURE_DELAY_MS)
         }
       })
       .catch((err) => {

@@ -166,6 +166,38 @@
   color: rgba(255, 255, 255, 0.35);
 }
 
+/* Details row (passes, confidence, files) */
+.details {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.detailItem {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* Thesis preview */
+.thesisPreview {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0 0 10px 0;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Fork indicator in title */
+.forkIndicator {
+  color: rgba(59, 130, 246, 0.7);
+  font-size: 12px;
+}
+
 /* Triggers badge for formed/ship state */
 .triggersBadge {
   font-family: var(--font-ui);

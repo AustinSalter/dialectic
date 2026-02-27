@@ -41,6 +41,7 @@ fn main() {
             session::get_skills_dir,
             session::prepare_launch,
             session::fork_session,
+            session::capture_conversation_id,
             // Terminal commands
             terminal::spawn_terminal,
             terminal::write_to_terminal,

@@ -108,8 +108,14 @@ export function SessionCard({ session, onClick, onDelete, onFork }: SessionCardP
         </button>
       )}
 
-      <h4 className={styles.title}>{session.title}</h4>
-      {session.summary && (
+      <h4 className={styles.title}>
+        {session.parentSessionId && <span className={styles.forkIndicator} title="Forked session">&#x2442; </span>}
+        {session.title}
+      </h4>
+      {session.thesisPreview && (
+        <p className={styles.thesisPreview}>{session.thesisPreview}</p>
+      )}
+      {!session.thesisPreview && session.summary && (
         <p className={styles.summary}>{session.summary}</p>
       )}
       <div className={styles.meta}>
@@ -128,6 +134,19 @@ export function SessionCard({ session, onClick, onDelete, onFork }: SessionCardP
           <span className={styles.claims}>{session.claimCount} claims</span>
         )}
       </div>
+      {(session.passCount > 0 || session.confidenceScore != null || session.contextFileCount > 0) && (
+        <div className={styles.details}>
+          {session.passCount > 0 && (
+            <span className={styles.detailItem}>{session.passCount} {session.passCount === 1 ? 'pass' : 'passes'}</span>
+          )}
+          {session.confidenceScore != null && (
+            <span className={styles.detailItem}>{Math.round(session.confidenceScore * 100)}% conf</span>
+          )}
+          {session.contextFileCount > 0 && (
+            <span className={styles.detailItem}>{session.contextFileCount} {session.contextFileCount === 1 ? 'file' : 'files'}</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }

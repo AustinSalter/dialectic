@@ -69,8 +69,10 @@ pub struct VaultIndex {
     pub title_to_path: HashMap<String, String>,
     /// Tag to paths mapping
     pub tag_to_paths: HashMap<String, Vec<String>>,
-    /// Last full index timestamp
+    /// Last full in-memory index timestamp
     pub last_indexed: DateTime<Utc>,
+    /// Last successful Chroma index timestamp (for incremental indexing)
+    pub last_chroma_indexed: DateTime<Utc>,
 }
 
 impl VaultIndex {
@@ -81,6 +83,8 @@ impl VaultIndex {
             title_to_path: HashMap::new(),
             tag_to_paths: HashMap::new(),
             last_indexed: Utc::now(),
+            // Use epoch so first index_vault_to_chroma captures all notes
+            last_chroma_indexed: DateTime::<Utc>::default(),
         }
     }
 
@@ -307,24 +311,83 @@ pub fn configure_vault(vault_path: &str) -> Result<(), ObsidianError> {
     Ok(())
 }
 
-/// Index the vault into Chroma for semantic search (best-effort, non-blocking)
+/// Threshold (in tokens) above which a note is chunked into multiple vectors.
+/// Notes below this are stored as a single vector.
+const NOTE_CHUNK_THRESHOLD: u32 = 1_000;
+/// Target chunk size for large notes (in tokens, ~4 chars per token)
+const NOTE_CHUNK_TARGET: usize = 2_000; // ~500 tokens worth of chars
+
+/// Chunk a markdown note into semantic pieces for better vector search.
+/// Returns a vec of (chunk_content, chunk_index).
+fn chunk_note_content(content: &str) -> Vec<(String, u32)> {
+    let mut chunks = Vec::new();
+    let mut current_chunk = String::new();
+    let mut chunk_index = 0u32;
+
+    for line in content.lines() {
+        // Split on markdown headers
+        if line.starts_with('#') && !current_chunk.trim().is_empty() {
+            chunks.push((current_chunk.clone(), chunk_index));
+            chunk_index += 1;
+            current_chunk.clear();
+        }
+
+        current_chunk.push_str(line);
+        current_chunk.push('\n');
+
+        // Force split if chunk gets too large
+        if current_chunk.len() >= NOTE_CHUNK_TARGET {
+            // Try to find a paragraph boundary in the latter half
+            let mid = current_chunk.len() / 2;
+            if let Some(pos) = current_chunk[mid..].find("\n\n") {
+                let split_at = mid + pos + 2;
+                let first = current_chunk[..split_at].to_string();
+                let rest = current_chunk[split_at..].to_string();
+                chunks.push((first, chunk_index));
+                chunk_index += 1;
+                current_chunk = rest;
+            }
+        }
+    }
+
+    if !current_chunk.trim().is_empty() {
+        chunks.push((current_chunk, chunk_index));
+    }
+
+    chunks
+}
+
+/// A single piece to upsert to Chroma (note or note chunk)
+struct ChromaUpsertItem {
+    id: String,
+    document: String,
+    metadata: serde_json::Value,
+}
+
+/// Index the vault into Chroma for semantic search (best-effort, non-blocking).
+/// Only re-indexes notes modified since the last successful index.
 pub async fn index_vault_to_chroma() -> u32 {
     let notes_data: Vec<(String, String, String, Vec<String>, u32, String)> = {
         let index = VAULT_INDEX.read();
         match index.as_ref() {
-            Some(vault) => vault.notes.values().map(|note| {
-                // Read the full content for Chroma indexing
-                let full_path = vault.vault_path.join(&note.path);
-                let content = fs::read_to_string(&full_path).unwrap_or_else(|_| note.summary.clone());
-                (
-                    note.path.clone(),
-                    note.title.clone(),
-                    content,
-                    note.tags.clone(),
-                    note.token_count,
-                    note.modified.to_rfc3339(),
-                )
-            }).collect(),
+            Some(vault) => {
+                let cutoff = vault.last_chroma_indexed;
+                vault.notes.values()
+                    .filter(|note| note.modified > cutoff)
+                    .map(|note| {
+                        // Read the full content for Chroma indexing
+                        let full_path = vault.vault_path.join(&note.path);
+                        let content = fs::read_to_string(&full_path).unwrap_or_else(|_| note.summary.clone());
+                        (
+                            note.path.clone(),
+                            note.title.clone(),
+                            content,
+                            note.tags.clone(),
+                            note.token_count,
+                            note.modified.to_rfc3339(),
+                        )
+                    }).collect()
+            }
             None => Vec::new(),
         }
     };
@@ -341,24 +404,41 @@ pub async fn index_vault_to_chroma() -> u32 {
         Err(_) => return 0,
     };
 
-    // Chunk notes into batches of 50 for Chroma upsert
-    let mut indexed = 0u32;
-    for batch in notes_data.chunks(50) {
-        let ids: Vec<String> = batch.iter()
-            .map(|(path, ..)| format!("obsidian_{}", path.replace('/', "_")))
-            .collect();
-
-        let documents: Vec<String> = batch.iter()
-            .map(|(_, _, content, ..)| content.clone())
-            .collect();
-
-        let metadatas: Vec<serde_json::Value> = batch.iter()
-            .map(|(path, title, _, tags, token_count, modified)| {
-                crate::chroma::collections::obsidian_chunk_metadata(
+    // Build upsert items, chunking large notes
+    let mut items: Vec<ChromaUpsertItem> = Vec::new();
+    for (path, title, content, tags, token_count, modified) in &notes_data {
+        if *token_count > NOTE_CHUNK_THRESHOLD {
+            // Chunk large notes into multiple vectors
+            let chunks = chunk_note_content(content);
+            let total_chunks = chunks.len() as u32;
+            for (chunk_content, chunk_index) in chunks {
+                let chunk_tokens = (chunk_content.len() as f64 / 4.0).ceil() as u32;
+                items.push(ChromaUpsertItem {
+                    id: format!("obsidian_{}_chunk{}", path.replace('/', "_"), chunk_index),
+                    document: chunk_content,
+                    metadata: crate::chroma::collections::obsidian_chunk_metadata_indexed(
+                        path, title, tags, chunk_tokens, modified, chunk_index, total_chunks,
+                    ),
+                });
+            }
+        } else {
+            // Small notes: single vector
+            items.push(ChromaUpsertItem {
+                id: format!("obsidian_{}", path.replace('/', "_")),
+                document: content.clone(),
+                metadata: crate::chroma::collections::obsidian_chunk_metadata(
                     path, title, tags, *token_count, modified,
-                )
-            })
-            .collect();
+                ),
+            });
+        }
+    }
+
+    // Batch upsert in groups of 50
+    let mut indexed = 0u32;
+    for batch in items.chunks(50) {
+        let ids: Vec<String> = batch.iter().map(|item| item.id.clone()).collect();
+        let documents: Vec<String> = batch.iter().map(|item| item.document.clone()).collect();
+        let metadatas: Vec<serde_json::Value> = batch.iter().map(|item| item.metadata.clone()).collect();
 
         match client.upsert(
             &collection.id,
@@ -371,6 +451,14 @@ pub async fn index_vault_to_chroma() -> u32 {
             Err(e) => {
                 warn!(error = %e, "Chroma obsidian indexing batch failed");
             }
+        }
+    }
+
+    // Update Chroma index timestamp so next call only processes new changes
+    if indexed > 0 {
+        let mut index = VAULT_INDEX.write();
+        if let Some(vault) = index.as_mut() {
+            vault.last_chroma_indexed = Utc::now();
         }
     }
 
