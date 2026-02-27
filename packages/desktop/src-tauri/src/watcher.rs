@@ -2,9 +2,13 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::fs;
 use std::sync::LazyLock;
 use tauri::{AppHandle, Emitter};
 use thiserror::Error;
+
+use crate::session::Session;
+use crate::chroma::memory::extract_session_markers;
 
 #[derive(Error, Debug)]
 pub enum WatcherError {
@@ -94,6 +98,22 @@ pub fn watch_session(app: AppHandle, session_id: String) -> Result<(), WatcherEr
                         tracing::debug!(session_id = %session_id_clone, event = %event_name, "Emitting session-updated event");
                         if let Err(e) = app_clone.emit(&event_name, payload) {
                             tracing::warn!(session_id = %session_id_clone, error = %e, "Failed to emit session-updated event");
+                        }
+
+                        // Extract semantic markers to Chroma (best-effort, async)
+                        if let Ok(content) = fs::read_to_string(path) {
+                            if let Ok(session) = serde_json::from_str::<Session>(&content) {
+                                let has_markers = session.claims.iter().any(|c| c.marker.is_some());
+                                let has_unresolved = session.tensions.iter().any(|t| t.resolution.is_none());
+                                let has_thesis = session.thesis.is_some();
+                                if has_markers || has_unresolved || has_thesis {
+                                    tauri::async_runtime::spawn(async move {
+                                        extract_session_markers(&session).await;
+                                    });
+                                }
+                            } else {
+                                tracing::debug!(session_id = %session_id_clone, "Skipping extraction: session.json parse failed (likely mid-write)");
+                            }
                         }
                     }
                 }

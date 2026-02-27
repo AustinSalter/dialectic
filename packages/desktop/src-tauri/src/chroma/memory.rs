@@ -13,6 +13,7 @@ use tracing::{info, warn, debug};
 
 use super::client::{ChromaError, get_client};
 use super::collections::*;
+use crate::session::Session;
 
 #[derive(Error, Debug)]
 pub enum MemoryError {
@@ -96,6 +97,20 @@ pub async fn write_memory(
 
     let now = Utc::now().to_rfc3339();
 
+    // Read existing metadata to preserve created_at and access_count across upserts
+    let existing_meta = client.get(
+        &collection.id,
+        Some(vec![id.to_string()]),
+        None,
+        None,
+        None,
+        None,
+        Some(vec!["metadatas".to_string()]),
+    ).await.ok().and_then(|r| {
+        if r.ids.is_empty() { return None; }
+        r.metadatas.and_then(|m| m.into_iter().next()).flatten()
+    });
+
     // Merge extra metadata first, filtering out reserved keys
     let mut metadata = json!({});
     if let Some(extra) = extra_metadata {
@@ -110,9 +125,24 @@ pub async fn write_memory(
 
     // Set core fields after merge so they cannot be overridden
     metadata["type"] = json!(memory_type.as_str());
-    metadata["created_at"] = json!(now);
-    metadata["access_count"] = json!(0_i64);
     metadata["last_accessed"] = json!(now);
+
+    // Preserve created_at and access_count from existing record, or initialize defaults
+    if let Some(ref existing) = existing_meta {
+        if let Some(created) = existing.get("created_at") {
+            metadata["created_at"] = created.clone();
+        } else {
+            metadata["created_at"] = json!(now);
+        }
+        if let Some(count) = existing.get("access_count") {
+            metadata["access_count"] = count.clone();
+        } else {
+            metadata["access_count"] = json!(0_i64);
+        }
+    } else {
+        metadata["created_at"] = json!(now);
+        metadata["access_count"] = json!(0_i64);
+    }
 
     client.upsert(
         &collection.id,
@@ -330,6 +360,112 @@ pub async fn get_memory_stats() -> Result<MemoryStats, MemoryError> {
         episodic_count: counts[2],
         total: counts.iter().sum(),
     })
+}
+
+// ============ EXTRACTION ============
+
+/// Map a semantic marker string (e.g. "[INSIGHT]") to a MemoryType.
+/// Returns None for unknown markers.
+fn marker_to_memory_type(marker: &str) -> Option<MemoryType> {
+    let normalized = marker.trim().trim_matches(|c| c == '[' || c == ']');
+    match normalized.to_uppercase().as_str() {
+        "INSIGHT" | "EVIDENCE" | "PATTERN" | "ASSUMPTION" => Some(MemoryType::Semantic),
+        "DECISION" | "RISK" => Some(MemoryType::Procedural),
+        "COUNTER" | "TENSION" | "THREAD" | "QUESTION" => Some(MemoryType::Episodic),
+        _ => None,
+    }
+}
+
+/// Extract marked claims, unresolved tensions, and thesis from a session
+/// and upsert them into Chroma's agentic memory collections.
+/// Best-effort: individual failures are logged and skipped.
+pub async fn extract_session_markers(session: &Session) {
+    let mut extracted = 0u32;
+    let mut errors = 0u32;
+    let session_title = &session.title;
+
+    // Marked claims
+    for claim in &session.claims {
+        if let Some(ref marker) = claim.marker {
+            let memory_type = match marker_to_memory_type(marker) {
+                Some(mt) => mt,
+                None => continue,
+            };
+            let id = format!("{}::{}", session.id, claim.id);
+            let doc = format!("{} {} -- from session \"{}\"", marker, claim.content, session_title);
+            let metadata = json!({
+                "session_id": session.id,
+                "session_title": session_title,
+                "claim_id": claim.id,
+                "marker": marker,
+                "source_type": "claim",
+            });
+            match write_memory(memory_type, &id, &doc, Some(metadata)).await {
+                Ok(()) => extracted += 1,
+                Err(e) => {
+                    warn!(claim_id = %claim.id, error = %e, "Failed to extract claim to memory");
+                    errors += 1;
+                }
+            }
+        }
+    }
+
+    // Unresolved tensions
+    for tension in &session.tensions {
+        if tension.resolution.is_some() {
+            continue;
+        }
+        let id = format!("{}::tension::{}", session.id, tension.id);
+        let doc = format!("[TENSION] Unresolved: {} -- from session \"{}\"", tension.description, session_title);
+        let metadata = json!({
+            "session_id": session.id,
+            "session_title": session_title,
+            "tension_id": tension.id,
+            "claim_a_id": tension.claim_a_id,
+            "claim_b_id": tension.claim_b_id,
+            "source_type": "tension",
+        });
+        match write_memory(MemoryType::Episodic, &id, &doc, Some(metadata)).await {
+            Ok(()) => extracted += 1,
+            Err(e) => {
+                warn!(tension_id = %tension.id, error = %e, "Failed to extract tension to memory");
+                errors += 1;
+            }
+        }
+    }
+
+    // Thesis (only if confidence >= 0.5)
+    if let Some(ref thesis) = session.thesis {
+        if thesis.confidence >= 0.5 {
+            let id = format!("{}::thesis", session.id);
+            let doc = format!(
+                "Thesis (confidence: {:.0}%): {} -- from session \"{}\"",
+                thesis.confidence * 100.0,
+                thesis.content,
+                session_title,
+            );
+            let metadata = json!({
+                "session_id": session.id,
+                "session_title": session_title,
+                "confidence": thesis.confidence,
+                "source_type": "thesis",
+            });
+            match write_memory(MemoryType::Semantic, &id, &doc, Some(metadata)).await {
+                Ok(()) => extracted += 1,
+                Err(e) => {
+                    warn!(error = %e, "Failed to extract thesis to memory");
+                    errors += 1;
+                }
+            }
+        }
+    }
+
+    info!(
+        session_id = %session.id,
+        extracted = extracted,
+        errors = errors,
+        "Session marker extraction complete"
+    );
 }
 
 // ============ TAURI COMMANDS ============
