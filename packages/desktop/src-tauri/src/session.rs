@@ -750,6 +750,90 @@ fn generate_claude_md(session: &Session, session_dir: &str, related_context: Opt
         md.push_str("Claims, tensions, and thesis were carried forward. The conversation is fresh.\n\n");
     }
 
+    // Session artifacts: distill output takes priority over in-session artifacts
+    let working_dir = PathBuf::from(&session.working_dir);
+    let distill_dir = working_dir.join(".dialectic-output");
+    let mut has_distill = false;
+
+    if distill_dir.exists() {
+        // Find the most recent run directory
+        if let Ok(entries) = fs::read_dir(&distill_dir) {
+            let mut dirs: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .collect();
+            dirs.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+
+            if let Some(latest) = dirs.first() {
+                let run_dir = latest.path();
+
+                // memo-final.md → Prior Conviction Memo (up to 4000 chars)
+                let memo_path = run_dir.join("memo-final.md");
+                if memo_path.exists() {
+                    if let Ok(content) = fs::read_to_string(&memo_path) {
+                        let truncated: String = content.chars().take(4000).collect();
+                        md.push_str("## Prior Conviction Memo\n\n");
+                        md.push_str(&truncated);
+                        if content.chars().count() > 4000 { md.push_str("\n\n[TRUNCATED]"); }
+                        md.push_str("\n\n");
+                        has_distill = true;
+                    }
+                }
+
+                // spine.yaml → Reasoning Spine (up to 2000 chars)
+                let spine_path = run_dir.join("spine.yaml");
+                if spine_path.exists() {
+                    if let Ok(content) = fs::read_to_string(&spine_path) {
+                        let truncated: String = content.chars().take(2000).collect();
+                        md.push_str("## Reasoning Spine\n\n```yaml\n");
+                        md.push_str(&truncated);
+                        if content.chars().count() > 2000 { md.push_str("\n# [TRUNCATED]"); }
+                        md.push_str("\n```\n\n");
+                        has_distill = true;
+                    }
+                }
+
+                // thesis-history.md → Thesis Evolution (up to 2000 chars)
+                let thesis_path = run_dir.join("thesis-history.md");
+                if thesis_path.exists() {
+                    if let Ok(content) = fs::read_to_string(&thesis_path) {
+                        let truncated: String = content.chars().take(2000).collect();
+                        md.push_str("## Thesis Evolution\n\n");
+                        md.push_str(&truncated);
+                        if content.chars().count() > 2000 { md.push_str("\n\n[TRUNCATED]"); }
+                        md.push_str("\n\n");
+                        has_distill = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // In-session artifacts (lower priority, only if no distill output)
+    if !has_distill {
+        let state_path = working_dir.join("state.json");
+        if state_path.exists() {
+            if let Ok(content) = fs::read_to_string(&state_path) {
+                let truncated: String = content.chars().take(2000).collect();
+                md.push_str("## Previous Iteration State\n\n```json\n");
+                md.push_str(&truncated);
+                if content.chars().count() > 2000 { md.push_str("\n// [TRUNCATED]"); }
+                md.push_str("\n```\n\n");
+            }
+        }
+
+        let scratchpad_path = working_dir.join("scratchpad.md");
+        if scratchpad_path.exists() {
+            if let Ok(content) = fs::read_to_string(&scratchpad_path) {
+                let truncated: String = content.chars().take(3000).collect();
+                md.push_str("## Working Notes (Scratchpad)\n\n");
+                md.push_str(&truncated);
+                if content.chars().count() > 3000 { md.push_str("\n\n[TRUNCATED]"); }
+                md.push_str("\n\n");
+            }
+        }
+    }
+
     // Related Prior Work (from Chroma cross-session search)
     if let Some(related) = related_context {
         if !related.hits.is_empty() {
@@ -907,42 +991,60 @@ pub async fn capture_conversation_id(
         session_dir.to_string_lossy().to_string()
     };
 
+    // Use session.updated as the floor timestamp — only consider JSONL files modified after this
+    let session_updated = session.updated;
+
     let project_dir = claude_code_project_dir(&effective_dir)
         .ok_or_else(|| SessionError::InvalidPath("Cannot determine home directory".to_string()))?;
 
-    if !project_dir.exists() {
-        debug!(session_id = %session_id, dir = %project_dir.display(), "Claude Code project dir not found");
-        return Ok(None);
-    }
+    // Find the most recently modified .jsonl file, trying exact dir first then scanning all
+    let newest = tokio::task::spawn_blocking(move || -> Option<(String, PathBuf)> {
+        // Fast path: check the exact encoded working-dir project dir
+        if project_dir.exists() {
+            if let Some(result) = find_newest_jsonl(&project_dir, &session_updated) {
+                return Some(result);
+            }
+        }
 
-    // Find the most recently modified .jsonl file
-    let newest = tokio::task::spawn_blocking(move || -> Option<String> {
-        let mut newest_time = std::time::SystemTime::UNIX_EPOCH;
-        let mut newest_id: Option<String> = None;
+        // Broad scan: check ALL dirs under ~/.claude/projects/ with a 2-second timeout
+        let home = dirs::home_dir()?;
+        let projects_base = home.join(".claude").join("projects");
+        if !projects_base.exists() {
+            return None;
+        }
 
-        let entries = fs::read_dir(&project_dir).ok()?;
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(2);
+        let mut best_time = std::time::SystemTime::UNIX_EPOCH;
+        let mut best: Option<(String, PathBuf)> = None;
+
+        let entries = fs::read_dir(&projects_base).ok()?;
         for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
-                if let Ok(meta) = entry.metadata() {
+            if start.elapsed() > timeout {
+                debug!("Conversation ID scan timed out after 2s");
+                break;
+            }
+            let dir = entry.path();
+            if !dir.is_dir() { continue; }
+            if let Some((id, path)) = find_newest_jsonl(&dir, &session_updated) {
+                if let Ok(meta) = path.metadata() {
                     if let Ok(modified) = meta.modified() {
-                        if modified > newest_time {
-                            newest_time = modified;
-                            newest_id = path.file_stem()
-                                .map(|s| s.to_string_lossy().to_string());
+                        if modified > best_time {
+                            best_time = modified;
+                            best = Some((id, path));
                         }
                     }
                 }
             }
         }
 
-        newest_id
+        best
     })
     .await
     .map_err(|e| SessionError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
 
-    let conv_id = match newest {
-        Some(id) => id,
+    let (conv_id, jsonl_path) = match newest {
+        Some((id, path)) => (id, Some(path)),
         None => {
             debug!(session_id = %session_id, "No Claude Code conversation files found");
             return Ok(None);
@@ -974,5 +1076,40 @@ pub async fn capture_conversation_id(
         .map_err(|e| SessionError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))??;
     }
 
+    // Spawn background JSONL mining if we have the file path
+    if let Some(jpath) = jsonl_path {
+        let sid = session_id.clone();
+        tokio::spawn(async move {
+            crate::chroma::jsonl_miner::mine_session_sources(&sid, &jpath).await;
+        });
+    }
+
     Ok(Some(conv_id))
+}
+
+/// Find the newest .jsonl file in a directory modified after the given timestamp.
+/// Returns (file_stem, full_path) if found.
+fn find_newest_jsonl(dir: &std::path::Path, after: &DateTime<Utc>) -> Option<(String, PathBuf)> {
+    let after_system: std::time::SystemTime = (*after).into();
+    let mut newest_time = std::time::SystemTime::UNIX_EPOCH;
+    let mut newest: Option<(String, PathBuf)> = None;
+
+    let entries = fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if modified > after_system && modified > newest_time {
+                        newest_time = modified;
+                        if let Some(stem) = path.file_stem() {
+                            newest = Some((stem.to_string_lossy().to_string(), path.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    newest
 }

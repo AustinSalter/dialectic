@@ -9,7 +9,7 @@ use serde_json::Value;
 use thiserror::Error;
 use tracing::{info, warn, debug};
 
-use super::client::{ChromaClient, ChromaError, get_client};
+use super::client::{ChromaClient, ChromaError, get_client, embed_query};
 use super::collections::*;
 
 #[derive(Error, Debug)]
@@ -69,10 +69,15 @@ async fn search_collection(
         return Ok(Vec::new());
     }
 
+    // Generate client-side embeddings for v2 compatibility
+    let query_embeddings: Vec<Vec<f32>> = query_texts.iter()
+        .flat_map(|t| embed_query(t))
+        .collect();
+
     let result = client.query(
         &collection.id,
-        None, // no raw embeddings — let Chroma embed query_texts
-        Some(query_texts),
+        Some(query_embeddings),
+        None,
         n_results,
         where_filter,
         None,
@@ -137,6 +142,7 @@ pub async fn search_all(
             COLLECTION_MEMORY_SEMANTIC.to_string(),
             COLLECTION_MEMORY_PROCEDURAL.to_string(),
             COLLECTION_MEMORY_EPISODIC.to_string(),
+            COLLECTION_WEB_SOURCES.to_string(),
         ]
     });
 

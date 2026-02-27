@@ -18,9 +18,15 @@ import styles from './XTerminal.module.css'
 // This accounts for shell startup time (loading .zshrc/.bashrc, etc.)
 const SHELL_INIT_DELAY_MS = 500
 
-// Delay before attempting to capture Claude Code's conversation ID.
+// Delay before first attempt to capture Claude Code's conversation ID.
 // Claude Code needs time to start up and create its session file.
-const CONVERSATION_CAPTURE_DELAY_MS = 8000
+const CONVERSATION_CAPTURE_DELAY_MS = 5000
+
+// Number of retry attempts for conversation ID capture
+const CONVERSATION_CAPTURE_RETRIES = 3
+
+// Interval between retry attempts (ms)
+const CONVERSATION_CAPTURE_INTERVAL_MS = 5000
 
 // Debounce delay for resize events to avoid flooding the PTY during animated resizing
 const RESIZE_DEBOUNCE_MS = 150
@@ -188,18 +194,28 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand, envV
             })
           }, SHELL_INIT_DELAY_MS)
 
-          // Capture Claude Code's conversation ID after it has time to start
-          setTimeout(() => {
+          // Capture Claude Code's conversation ID with retries
+          const attemptCapture = (attempt: number) => {
             invoke('capture_conversation_id', { sessionId })
               .then((convId) => {
                 if (convId) {
-                  console.log('Captured conversation ID:', convId)
+                  console.log(`Captured conversation ID (attempt ${attempt}):`, convId)
+                } else if (attempt < CONVERSATION_CAPTURE_RETRIES) {
+                  setTimeout(() => attemptCapture(attempt + 1), CONVERSATION_CAPTURE_INTERVAL_MS)
+                } else {
+                  console.warn('Conversation ID capture exhausted all retries')
                 }
               })
               .catch((err) => {
-                console.warn('Failed to capture conversation ID:', err)
+                if (attempt < CONVERSATION_CAPTURE_RETRIES) {
+                  console.warn(`Conversation ID capture attempt ${attempt} failed, retrying...`, err)
+                  setTimeout(() => attemptCapture(attempt + 1), CONVERSATION_CAPTURE_INTERVAL_MS)
+                } else {
+                  console.warn('Failed to capture conversation ID after all retries:', err)
+                }
               })
-          }, CONVERSATION_CAPTURE_DELAY_MS)
+          }
+          setTimeout(() => attemptCapture(1), CONVERSATION_CAPTURE_DELAY_MS)
         }
       })
       .catch((err) => {

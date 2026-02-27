@@ -6,8 +6,9 @@
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::fs::File;
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::{info, warn, error, debug};
@@ -108,6 +109,19 @@ impl ChromaSidecar {
         std::fs::create_dir_all(&self.persist_dir)
             .map_err(SidecarError::Io)?;
 
+        // Redirect stderr to a log file for debugging
+        let log_path = self.persist_dir.join("chroma.log");
+        let stderr_target = match File::create(&log_path) {
+            Ok(f) => {
+                debug!(path = %log_path.display(), "Redirecting chroma stderr to log file");
+                Stdio::from(f)
+            }
+            Err(e) => {
+                warn!(error = %e, "Could not create chroma log file, suppressing stderr");
+                Stdio::null()
+            }
+        };
+
         let child = Command::new(&self.binary_path)
             .args([
                 "run",
@@ -115,8 +129,8 @@ impl ChromaSidecar {
                 "--port", &self.port.to_string(),
                 "--path", &self.persist_dir.to_string_lossy(),
             ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(stderr_target)
             .spawn()
             .map_err(|e| SidecarError::StartFailed(format!(
                 "Failed to spawn {}: {}",
@@ -374,14 +388,14 @@ pub async fn chroma_start_sidecar(app: tauri::AppHandle) -> Result<SidecarStatus
 
     while Instant::now() < deadline {
         attempt += 1;
-        debug!(attempt = attempt, "Polling chroma health");
         match client.heartbeat().await {
             Ok(_) => {
-                info!("Chroma sidecar healthy");
+                info!("Chroma sidecar healthy after {} attempts", attempt);
                 return Ok(get_sidecar_status());
             }
             Err(e) => {
                 last_err = e.to_string();
+                debug!(attempt = attempt, error = %e, "Chroma health probe failed");
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }

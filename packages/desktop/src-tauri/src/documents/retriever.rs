@@ -178,11 +178,13 @@ async fn index_to_chroma(
         ))
         .collect();
 
+    let embeddings = crate::chroma::client::embed_documents(&documents);
+
     match client.upsert(
         &collection.id,
         ids,
         Some(documents),
-        None, // Let Chroma generate embeddings
+        Some(embeddings),
         Some(metadatas),
     ).await {
         Ok(_) => Some(collection.id.clone()),
@@ -338,11 +340,12 @@ async fn search_document_chroma(
     let collection = client.get_collection(COLLECTION_DOCUMENTS).await?;
 
     let filter = document_filter(session_id, doc_id);
+    let query_embeddings = crate::chroma::client::embed_query(query);
 
     let result = client.query(
         &collection.id,
+        Some(query_embeddings),
         None,
-        Some(vec![query.to_string()]),
         top_k as u32,
         Some(filter),
         None,
@@ -478,11 +481,12 @@ async fn search_all_chroma(
     let collection = client.get_collection(COLLECTION_DOCUMENTS).await?;
 
     let filter = session_filter(session_id);
+    let query_embeddings = crate::chroma::client::embed_query(query);
 
     let result = client.query(
         &collection.id,
+        Some(query_embeddings),
         None,
-        Some(vec![query.to_string()]),
         (top_k * 2) as u32, // Request extra to allow budget filtering
         Some(filter),
         None,

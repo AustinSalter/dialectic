@@ -139,10 +139,12 @@ pub async fn query_notes_semantic(
         }
     };
 
+    let query_embeddings = crate::chroma::client::embed_query(query);
+
     let result = match client.query(
         &collection.id,
+        Some(query_embeddings),
         None,
-        Some(vec![query.to_string()]),
         n_results.min(count),
         None,
         None,

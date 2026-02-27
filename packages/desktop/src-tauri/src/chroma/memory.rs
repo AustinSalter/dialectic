@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use thiserror::Error;
 use tracing::{info, warn, debug};
 
-use super::client::{ChromaError, get_client};
+use super::client::{ChromaError, get_client, embed_documents, embed_query};
 use super::collections::*;
 use crate::session::Session;
 
@@ -144,11 +144,13 @@ pub async fn write_memory(
         metadata["access_count"] = json!(0_i64);
     }
 
+    let embeddings = embed_documents(&[content.to_string()]);
+
     client.upsert(
         &collection.id,
         vec![id.to_string()],
         Some(vec![content.to_string()]),
-        None, // Let Chroma generate embeddings
+        Some(embeddings),
         Some(vec![metadata]),
     ).await?;
 
@@ -177,10 +179,12 @@ pub async fn read_memories(
         return Ok(Vec::new());
     }
 
+    let query_embeddings = embed_query(query);
+
     let result = client.query(
         &collection.id,
+        Some(query_embeddings),
         None,
-        Some(vec![query.to_string()]),
         n_results.min(count), // Don't request more than exist
         None,
         None,
@@ -360,6 +364,43 @@ pub async fn get_memory_stats() -> Result<MemoryStats, MemoryError> {
         episodic_count: counts[2],
         total: counts.iter().sum(),
     })
+}
+
+// ============ ARTIFACT INDEXING ============
+
+/// Index a session artifact (state.json, scratchpad.md, distill output) to Chroma memory.
+/// Best-effort: logs warnings on failure, does not propagate errors.
+pub async fn index_session_artifact(
+    session_id: &str,
+    filename: &str,
+    content: &str,
+    memory_type: MemoryType,
+) {
+    let id = format!("{}::artifact::{}", session_id, filename);
+    let prefix = match memory_type {
+        MemoryType::Semantic => "[ARTIFACT:SEMANTIC]",
+        MemoryType::Procedural => "[ARTIFACT:PROCEDURAL]",
+        MemoryType::Episodic => "[ARTIFACT:EPISODIC]",
+    };
+
+    // Truncate content to 8000 chars to avoid oversized embeddings
+    let truncated: String = content.chars().take(8000).collect();
+    let doc = format!("{} {} -- artifact '{}' from session {}", prefix, truncated, filename, session_id);
+
+    let metadata = json!({
+        "session_id": session_id,
+        "source_type": "artifact",
+        "artifact_name": filename,
+    });
+
+    match write_memory(memory_type, &id, &doc, Some(metadata)).await {
+        Ok(()) => {
+            info!(session_id = %session_id, filename = %filename, memory_type = %memory_type.as_str(), "Indexed session artifact");
+        }
+        Err(e) => {
+            warn!(session_id = %session_id, filename = %filename, error = %e, "Failed to index session artifact");
+        }
+    }
 }
 
 // ============ EXTRACTION ============

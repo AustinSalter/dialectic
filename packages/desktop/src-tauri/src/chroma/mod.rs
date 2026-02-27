@@ -8,3 +8,4 @@ pub mod client;
 pub mod collections;
 pub mod search;
 pub mod memory;
+pub mod jsonl_miner;

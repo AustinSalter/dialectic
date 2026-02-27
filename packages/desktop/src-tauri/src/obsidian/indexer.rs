@@ -440,11 +440,13 @@ pub async fn index_vault_to_chroma() -> u32 {
         let documents: Vec<String> = batch.iter().map(|item| item.document.clone()).collect();
         let metadatas: Vec<serde_json::Value> = batch.iter().map(|item| item.metadata.clone()).collect();
 
+        let embeddings = crate::chroma::client::embed_documents(&documents);
+
         match client.upsert(
             &collection.id,
             ids,
             Some(documents),
-            None,
+            Some(embeddings),
             Some(metadatas),
         ).await {
             Ok(_) => indexed += batch.len() as u32,

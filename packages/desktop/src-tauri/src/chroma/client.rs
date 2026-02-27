@@ -2,16 +2,19 @@
 //!
 //! Direct HTTP client for Chroma's REST API. Uses reqwest instead of
 //! third-party wrapper crates for stability and full API control.
+//! Supports both v1 and v2 API versions with automatic detection.
 
 use parking_lot::RwLock;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::OnceLock;
 use std::time::Duration;
 use thiserror::Error;
 use tracing::{info, warn, error, debug};
 
 use super::sidecar::CHROMA_PORT;
+use crate::documents::embeddings::generate_embedding;
 
 #[derive(Error, Debug)]
 pub enum ChromaError {
@@ -70,6 +73,9 @@ pub struct ChromaGetResult {
     pub embeddings: Option<Vec<Vec<f32>>>,
 }
 
+/// Detected API version prefix, shared across all client instances
+static DETECTED_API_PREFIX: OnceLock<String> = OnceLock::new();
+
 /// Chroma HTTP client
 #[derive(Clone)]
 pub struct ChromaClient {
@@ -97,13 +103,91 @@ impl ChromaClient {
         }
     }
 
+    /// Get the API prefix. Callers must call ensure_api_detected() first.
+    fn api_prefix(&self) -> &str {
+        DETECTED_API_PREFIX.get()
+            .map(|s| s.as_str())
+            .expect("BUG: api_prefix() called before ensure_api_detected()")
+    }
+
+    /// Ensure API version is detected, running detection if needed.
+    /// Call this before any operation that needs the API prefix.
+    pub async fn ensure_api_detected(&self) -> Result<(), ChromaError> {
+        if DETECTED_API_PREFIX.get().is_none() {
+            self.detect_api_version().await?;
+        }
+        Ok(())
+    }
+
+    /// Detect API version by probing heartbeat endpoints.
+    /// Returns the working prefix ("/api/v2" or "/api/v1").
+    pub async fn detect_api_version(&self) -> Result<String, ChromaError> {
+        // If already detected, return cached
+        if let Some(prefix) = DETECTED_API_PREFIX.get() {
+            return Ok(prefix.clone());
+        }
+
+        // Try v2 first
+        debug!("Probing Chroma API v2 heartbeat");
+        match self.http.get(format!("{}/api/v2/heartbeat", self.base_url))
+            .timeout(Duration::from_secs(5))
+            .send().await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                let prefix = "/api/v2".to_string();
+                let _ = DETECTED_API_PREFIX.set(prefix.clone());
+                info!(prefix = %prefix, "Detected Chroma API version");
+                return Ok(prefix);
+            }
+            Ok(resp) => {
+                debug!(status = %resp.status(), "Chroma v2 heartbeat returned non-success");
+            }
+            Err(e) => {
+                debug!(error = %e, "Chroma v2 heartbeat probe failed");
+            }
+        }
+
+        // Fall back to v1
+        debug!("Probing Chroma API v1 heartbeat");
+        match self.http.get(format!("{}/api/v1/heartbeat", self.base_url))
+            .timeout(Duration::from_secs(5))
+            .send().await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                let prefix = "/api/v1".to_string();
+                let _ = DETECTED_API_PREFIX.set(prefix.clone());
+                info!(prefix = %prefix, "Detected Chroma API version");
+                return Ok(prefix);
+            }
+            Ok(resp) => {
+                debug!(status = %resp.status(), "Chroma v1 heartbeat returned non-success");
+            }
+            Err(e) => {
+                debug!(error = %e, "Chroma v1 heartbeat probe failed");
+            }
+        }
+
+        Err(ChromaError::ServerUnavailable)
+    }
+
+    /// Build the tenant/database path segment
+    fn td_path(&self) -> String {
+        format!("tenants/{}/databases/{}", self.tenant, self.database)
+    }
+
     /// Health check — returns nanosecond heartbeat if healthy
     pub async fn heartbeat(&self) -> Result<i64, ChromaError> {
-        debug!("Chroma heartbeat check");
-        let resp = self.http.get(format!("{}/api/v1/heartbeat", self.base_url))
-            .send().await?;
+        // Detect version on first heartbeat call
+        let prefix = self.detect_api_version().await?;
+
+        let url = format!("{}{}/heartbeat", self.base_url, prefix);
+        debug!(url = %url, "Chroma heartbeat check");
+        let resp = self.http.get(&url).send().await?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            debug!(status = %status, body = %body, "Heartbeat failed");
             return Err(ChromaError::ServerUnavailable);
         }
 
@@ -117,6 +201,7 @@ impl ChromaClient {
         name: &str,
         metadata: Option<Value>,
     ) -> Result<CollectionInfo, ChromaError> {
+        self.ensure_api_detected().await?;
         let mut body = json!({
             "name": name,
             "get_or_create": true,
@@ -125,10 +210,11 @@ impl ChromaClient {
             body["metadata"] = meta;
         }
 
-        let resp = self.http.post(format!(
-            "{}/api/v1/tenants/{}/databases/{}/collections",
-            self.base_url, self.tenant, self.database
-        ))
+        let url = format!("{}{}/{}/collections",
+            self.base_url, self.api_prefix(), self.td_path()
+        );
+
+        let resp = self.http.post(&url)
             .json(&body)
             .send().await?;
 
@@ -155,11 +241,12 @@ impl ChromaClient {
 
     /// Delete a collection by name
     pub async fn delete_collection(&self, name: &str) -> Result<(), ChromaError> {
-        let resp = self.http.delete(format!(
-            "{}/api/v1/tenants/{}/databases/{}/collections/{}",
-            self.base_url, self.tenant, self.database, name
-        ))
-            .send().await?;
+        self.ensure_api_detected().await?;
+        let url = format!("{}{}/{}/collections/{}",
+            self.base_url, self.api_prefix(), self.td_path(), name
+        );
+
+        let resp = self.http.delete(&url).send().await?;
 
         if resp.status().as_u16() == 404 {
             warn!(name = %name, "Collection already deleted (404)");
@@ -174,11 +261,12 @@ impl ChromaClient {
 
     /// List all collections
     pub async fn list_collections(&self) -> Result<Vec<CollectionInfo>, ChromaError> {
-        let resp = self.http.get(format!(
-            "{}/api/v1/tenants/{}/databases/{}/collections",
-            self.base_url, self.tenant, self.database
-        ))
-            .send().await?;
+        self.ensure_api_detected().await?;
+        let url = format!("{}{}/{}/collections",
+            self.base_url, self.api_prefix(), self.td_path()
+        );
+
+        let resp = self.http.get(&url).send().await?;
 
         if !resp.status().is_success() {
             return Err(ChromaError::Http(format!("List collections failed: {}", resp.status())));
@@ -212,10 +300,12 @@ impl ChromaClient {
         }
 
         let count = ids.len();
-        let resp = self.http.post(format!(
-            "{}/api/v1/collections/{}/add",
-            self.base_url, collection_id
-        ))
+        self.ensure_api_detected().await?;
+        let url = format!("{}{}/{}/collections/{}/add",
+            self.base_url, self.api_prefix(), self.td_path(), collection_id
+        );
+
+        let resp = self.http.post(&url)
             .json(&body)
             .send().await?;
 
@@ -255,10 +345,12 @@ impl ChromaClient {
         }
 
         let count = ids.len();
-        let resp = self.http.post(format!(
-            "{}/api/v1/collections/{}/upsert",
-            self.base_url, collection_id
-        ))
+        self.ensure_api_detected().await?;
+        let url = format!("{}{}/{}/collections/{}/upsert",
+            self.base_url, self.api_prefix(), self.td_path(), collection_id
+        );
+
+        let resp = self.http.post(&url)
             .json(&body)
             .send().await?;
 
@@ -303,10 +395,12 @@ impl ChromaClient {
         }
 
         debug!(collection = %collection_id, n_results = n_results, "Querying collection");
-        let resp = self.http.post(format!(
-            "{}/api/v1/collections/{}/query",
-            self.base_url, collection_id
-        ))
+        self.ensure_api_detected().await?;
+        let url = format!("{}{}/{}/collections/{}/query",
+            self.base_url, self.api_prefix(), self.td_path(), collection_id
+        );
+
+        let resp = self.http.post(&url)
             .json(&body)
             .send().await?;
 
@@ -351,10 +445,12 @@ impl ChromaClient {
             body["include"] = json!(inc);
         }
 
-        let resp = self.http.post(format!(
-            "{}/api/v1/collections/{}/get",
-            self.base_url, collection_id
-        ))
+        self.ensure_api_detected().await?;
+        let url = format!("{}{}/{}/collections/{}/get",
+            self.base_url, self.api_prefix(), self.td_path(), collection_id
+        );
+
+        let resp = self.http.post(&url)
             .json(&body)
             .send().await?;
 
@@ -381,10 +477,12 @@ impl ChromaClient {
             body["where"] = wf;
         }
 
-        let resp = self.http.post(format!(
-            "{}/api/v1/collections/{}/delete",
-            self.base_url, collection_id
-        ))
+        self.ensure_api_detected().await?;
+        let url = format!("{}{}/{}/collections/{}/delete",
+            self.base_url, self.api_prefix(), self.td_path(), collection_id
+        );
+
+        let resp = self.http.post(&url)
             .json(&body)
             .send().await?;
 
@@ -401,11 +499,12 @@ impl ChromaClient {
 
     /// Count records in a collection
     pub async fn count(&self, collection_id: &str) -> Result<u32, ChromaError> {
-        let resp = self.http.get(format!(
-            "{}/api/v1/collections/{}/count",
-            self.base_url, collection_id
-        ))
-            .send().await?;
+        self.ensure_api_detected().await?;
+        let url = format!("{}{}/{}/collections/{}/count",
+            self.base_url, self.api_prefix(), self.td_path(), collection_id
+        );
+
+        let resp = self.http.get(&url).send().await?;
 
         if !resp.status().is_success() {
             return Err(ChromaError::Http(format!("Count failed: {}", resp.status())));
@@ -415,6 +514,21 @@ impl ChromaClient {
         debug!(collection = %collection_id, count = result, "Collection count");
         Ok(result)
     }
+}
+
+// ============ EMBEDDING HELPERS ============
+
+/// Generate embeddings for a batch of document texts (for add/upsert).
+/// Uses the local feature-hash embedder (256 dims, deterministic).
+pub fn embed_documents(texts: &[String]) -> Vec<Vec<f32>> {
+    texts.iter()
+        .map(|t| generate_embedding(t).unwrap_or_else(|_| vec![0.0; 256]))
+        .collect()
+}
+
+/// Generate embedding for a single query text (for query).
+pub fn embed_query(text: &str) -> Vec<Vec<f32>> {
+    vec![generate_embedding(text).unwrap_or_else(|_| vec![0.0; 256])]
 }
 
 /// Get the global Chroma client (creates on first access)

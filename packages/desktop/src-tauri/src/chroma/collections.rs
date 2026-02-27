@@ -15,6 +15,7 @@ pub const COLLECTION_OBSIDIAN: &str = "obsidian";
 pub const COLLECTION_MEMORY_SEMANTIC: &str = "memory_semantic";
 pub const COLLECTION_MEMORY_PROCEDURAL: &str = "memory_procedural";
 pub const COLLECTION_MEMORY_EPISODIC: &str = "memory_episodic";
+pub const COLLECTION_WEB_SOURCES: &str = "web_sources";
 
 /// All collections managed by Dialectic
 pub const ALL_COLLECTIONS: &[&str] = &[
@@ -23,6 +24,7 @@ pub const ALL_COLLECTIONS: &[&str] = &[
     COLLECTION_MEMORY_SEMANTIC,
     COLLECTION_MEMORY_PROCEDURAL,
     COLLECTION_MEMORY_EPISODIC,
+    COLLECTION_WEB_SOURCES,
 ];
 
 /// Collection status info
