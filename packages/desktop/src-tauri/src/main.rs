@@ -28,6 +28,58 @@ fn main() {
             if let Err(e) = session::init_app_data_dir(app.handle()) {
                 tracing::error!(error = %e, "Failed to initialize app data directory");
             }
+
+            // Start Chroma sidecar and ensure collections exist.
+            // Non-fatal: app works offline with feature-hash fallback.
+            match chroma::sidecar::start_sidecar(Some(app.handle())) {
+                Ok(()) => {
+                    tracing::info!("Chroma sidecar started, ensuring collections...");
+                    // Health check + collection init is async; fire in background
+                    tauri::async_runtime::spawn(async {
+                        let client = chroma::client::get_client();
+                        // Poll health for up to 10 seconds
+                        let deadline = std::time::Instant::now()
+                            + std::time::Duration::from_secs(10);
+                        let mut healthy = false;
+                        while std::time::Instant::now() < deadline {
+                            if client.heartbeat().await.is_ok() {
+                                healthy = true;
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        }
+                        if healthy {
+                            match chroma::collections::ensure_all_collections(&client).await {
+                                Ok(cols) => tracing::info!(
+                                    count = cols.len(),
+                                    "Chroma collections ready"
+                                ),
+                                Err(e) => tracing::warn!(
+                                    error = %e,
+                                    "Failed to ensure Chroma collections"
+                                ),
+                            }
+                        } else {
+                            tracing::warn!("Chroma sidecar not healthy after 10s, skipping collection init");
+                        }
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Chroma sidecar not available (app will use offline fallback)");
+                    // Even without our sidecar, an external Chroma may be running.
+                    // Try to ensure collections against it.
+                    tauri::async_runtime::spawn(async {
+                        let client = chroma::client::get_client();
+                        if client.heartbeat().await.is_ok() {
+                            tracing::info!("External Chroma detected, ensuring collections...");
+                            if let Err(e) = chroma::collections::ensure_all_collections(&client).await {
+                                tracing::warn!(error = %e, "Failed to ensure collections on external Chroma");
+                            }
+                        }
+                    });
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

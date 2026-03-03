@@ -8,6 +8,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { invoke } from '@tauri-apps/api/core'
 import { useTerminal, type TerminalConfig } from '../../hooks/useTerminal'
@@ -119,11 +120,32 @@ export function XTerminal({ sessionId, workingDir, onClose, initialCommand, envV
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
 
+    // Unicode 11 width tables — fixes cursor drift with emoji, CJK, box-drawing chars
+    const unicode11Addon = new Unicode11Addon()
+    terminal.loadAddon(unicode11Addon)
+
     terminal.open(containerRef.current)
+    terminal.unicode.activeVersion = '11'
     fitAddon.fit()
 
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
+
+    // GPU-accelerated WebGL renderer — async with graceful fallback to canvas
+    import('@xterm/addon-webgl').then(({ WebglAddon }) => {
+      if (!terminalRef.current) return
+      try {
+        const webgl = new WebglAddon()
+        webgl.onContextLoss(() => {
+          webgl.dispose()
+        })
+        terminalRef.current.loadAddon(webgl)
+      } catch (e) {
+        console.warn('WebGL addon failed to load, using canvas renderer:', e)
+      }
+    }).catch(() => {
+      // WebGL not available — canvas renderer is the default fallback
+    })
 
     // Handle user input
     terminal.onData((data) => {

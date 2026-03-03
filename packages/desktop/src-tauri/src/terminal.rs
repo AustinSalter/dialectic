@@ -113,6 +113,24 @@ mod lazy_static {
     pub(crate) use lazy_static;
 }
 
+/// Find the boundary between valid UTF-8 and a trailing incomplete multi-byte sequence.
+/// Returns (valid_bytes, carry_bytes) where valid_bytes + carry_bytes == data.len().
+fn find_utf8_boundary(data: &[u8]) -> (usize, usize) {
+    match std::str::from_utf8(data) {
+        Ok(_) => (data.len(), 0),
+        Err(e) => {
+            let valid = e.valid_up_to();
+            if e.error_len().is_none() {
+                // Incomplete sequence at end — carry over to next read
+                (valid, data.len() - valid)
+            } else {
+                // Genuinely invalid byte — emit everything (lossy will handle it)
+                (data.len(), 0)
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<TerminalState, TerminalError> {
     let mut manager = TERMINAL_MANAGER.lock();
@@ -221,14 +239,39 @@ pub fn spawn_terminal(app: AppHandle, config: TerminalConfig) -> Result<Terminal
             }
         };
 
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 65536];
+        let mut leftover: Vec<u8> = Vec::new();
         loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break, // EOF
+            // If there are leftover bytes from a previous read, place them at the
+            // start of the buffer so they get prepended to the next chunk.
+            let offset = leftover.len();
+            if offset > 0 {
+                buf[..offset].copy_from_slice(&leftover);
+                leftover.clear();
+            }
+
+            match reader.read(&mut buf[offset..]) {
+                Ok(0) => {
+                    // EOF — flush any remaining leftover as lossy UTF-8
+                    if offset > 0 {
+                        let data = String::from_utf8_lossy(&buf[..offset]).to_string();
+                        let event_name = format!("terminal-output-{}", session_id_clone);
+                        let _ = app_clone.emit(&event_name, data);
+                    }
+                    break;
+                }
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let event_name = format!("terminal-output-{}", session_id_clone);
-                    let _ = app_clone.emit(&event_name, data);
+                    let total = offset + n;
+                    let (valid_end, carry) = find_utf8_boundary(&buf[..total]);
+                    if valid_end > 0 {
+                        // SAFETY: find_utf8_boundary guarantees buf[..valid_end] is valid UTF-8
+                        let data = unsafe { std::str::from_utf8_unchecked(&buf[..valid_end]) };
+                        let event_name = format!("terminal-output-{}", session_id_clone);
+                        let _ = app_clone.emit(&event_name, data);
+                    }
+                    if carry > 0 {
+                        leftover.extend_from_slice(&buf[valid_end..total]);
+                    }
                 }
                 Err(_) => break,
             }
