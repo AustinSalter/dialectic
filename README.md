@@ -8,25 +8,34 @@ Dialectic is a desktop application that provides a focused UI for strategic reas
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  DIALECTIC DESKTOP (Tauri + React)                              │
+│  DIALECTIC DESKTOP (Tauri v2 + React 19)                        │
 ├─────────────────────────────────────────────────────────────────┤
 │  Vista UI — landscape backgrounds, calm space                   │
-│  Floating Windows — session conversations with embedded terminal│
 │  Kanban Board — workflow visualization (Spark → Ship)           │
+│  Floating Windows — session conversations with embedded terminal│
 │  Snappable Rails — files, sessions, notes                       │
 ├─────────────────────────────────────────────────────────────────┤
 │  Embedded Terminal (xterm.js + portable-pty)                    │
 │  └── Claude Code (user's own installation)                      │
 │      └── dialectic-plugin (skills + hooks + CLI)                │
+├─────────────────────────────────────────────────────────────────┤
+│  Rust Backend (68 IPC commands)                                 │
+│  ├── Session — persistence, forking, conversation continuity    │
+│  ├── Context — token budget, classification, compression        │
+│  ├── Documents — chunking, embeddings, retrieval                │
+│  ├── Obsidian — vault indexing, keyword + semantic search        │
+│  ├── CDG — claim dependency graph, coherence metrics            │
+│  ├── Chroma — vector DB sidecar, 6 collections, agentic memory │
+│  └── Terminal — PTY management, command allowlist                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 **You bring:** Claude Code (with your own API key or Max subscription)
-**We provide:** The thinking methodology, the UI, the workflow
+**We provide:** The thinking methodology, the UI, the knowledge layer
 
 ## The Plugin System
 
-Dialectic's reasoning methodology is packaged as a Claude Code plugin with three components:
+Dialectic's reasoning methodology is packaged as a Claude Code plugin (v1.6.0) with three components:
 
 ### 1. Skills
 
@@ -34,7 +43,7 @@ Dialectic's reasoning methodology is packaged as a Claude Code plugin with three
 
 | Skill | Purpose |
 |-------|---------|
-| `/spark` | Start analysis - brainstorm, gather sources, establish framing |
+| `/spark` | Start analysis — brainstorm, gather sources, establish framing |
 | `/shape` | Form positions on claims through probing questions |
 | `/stress-test` | Challenge assumptions, surface contradictions |
 | `/sharpen` | Crystallize thesis with confidence calibration |
@@ -44,6 +53,7 @@ Dialectic's reasoning methodology is packaged as a Claude Code plugin with three
 | Skill | Purpose |
 |-------|---------|
 | `/dialectic <question>` | Multi-pass reasoning with expansion, compression, critique cycles |
+| `/cancel-dialectic` | Terminate an active dialectic reasoning loop |
 | `/pitfalls [check\|stases]` | Audit for cognitive biases (confirmation, narrative fallacy, etc.) |
 
 **Context Management**:
@@ -55,6 +65,12 @@ Dialectic's reasoning methodology is packaged as a Claude Code plugin with three
 | `/brief compact` | Trigger context compression |
 | `/brief vault <query>` | Search Obsidian vault |
 
+**Utility**:
+
+| Skill | Purpose |
+|-------|---------|
+| `/tui-debug` | Debug TUI rendering and terminal state |
+
 ### 2. Hooks
 
 | Hook | Purpose |
@@ -62,17 +78,114 @@ Dialectic's reasoning methodology is packaged as a Claude Code plugin with three
 | `pre-submit` | Injects budget status at start of every turn |
 | `stop` | Manages dialectic loop continuation/termination |
 
-### 3. CLI (`dialectic`)
+### 3. CLI (`dialectic-cli`)
 
 A Rust CLI binary that skills and hooks shell out to:
 
 ```bash
+# Session management
 dialectic session budget <id>     # Get budget status (JSON)
 dialectic session resume <id>     # Get resume context (JSON)
+dialectic session list            # List all sessions
+
+# Obsidian vault
 dialectic vault search "<query>"  # Search Obsidian vault
+dialectic vault note <path>       # Get note content
+dialectic vault configure <path>  # Configure vault path
+dialectic vault index             # Index the configured vault
+
+# Token counting
 dialectic tokens count "<text>"   # Count tokens
+
+# Compression
 dialectic compress suggest <id>   # Get compression suggestions
+
+# Claim Dependency Graph
+dialectic cdg metrics <id>        # Compute all CDG metrics
+dialectic cdg strata <id>         # Compute claim strata
+dialectic cdg orphans <id>        # List orphan claims
+dialectic cdg diff <id>           # Compare current vs last snapshot
+dialectic cdg add-edge <id> --source <s> --target <t> --type <type>
+dialectic cdg resolve <id> --edge-index <n> --status <resolved|accepted>
+dialectic cdg snapshot <id> --pass-id <label>
 ```
+
+## Knowledge Layer
+
+### Chroma Vector DB
+
+Managed ChromaDB sidecar with 6 collections, graceful offline fallback to feature-hash embeddings:
+
+| Collection | Purpose |
+|------------|---------|
+| `documents` | Reference document chunks |
+| `obsidian` | Vault note embeddings |
+| `memory_semantic` | Factual knowledge and concepts |
+| `memory_procedural` | How-to and process knowledge |
+| `memory_episodic` | Session events and outcomes |
+| `web_sources` | JSONL-mined web references |
+
+### Document Processing
+
+Three handling strategies based on document size: **full** (inject verbatim), **summarized** (compress to summary), and **chunked** (split + embed). 256-dimension feature-hash embeddings with Chroma-first retrieval and local fallback.
+
+### Obsidian Integration
+
+Vault indexing with incremental file watching, keyword and semantic search across notes, mention resolution, and related-note discovery. 12 IPC commands.
+
+### Agentic Memory
+
+Three memory types — semantic (facts), procedural (processes), episodic (events) — with cross-collection search for contextual retrieval. Write, read, list, delete, and stats commands.
+
+### JSONL Mining
+
+Extracts web source references from Claude Code conversation logs and indexes them into the `web_sources` collection.
+
+## Claim Dependency Graph
+
+The CDG tracks structural relationships between claims and computes coherence metrics:
+
+**5 edge types:** SUPPORT, REQUIRE, TENSION, DERIVE, QUALIFY — each with type weights and user-assigned confidence.
+
+**4 strata** (computed from REQUIRE-path topology):
+- **Core** — the thesis anchor (unique sink of REQUIRE paths)
+- **Structural** — claims with a REQUIRE path to Core
+- **Evidential** — SUPPORT edges to Structural nodes
+- **Peripheral** — everything else
+
+**Coherence metrics:** Structural Dependence Density (SDD), Orphan Ratio, Core Reachability, Tension Resolution Rate (TRR), Load-Bearing Ratio (LBR), and a weighted composite coherence score.
+
+TENSION edges carry resolution status (Unresolved / Resolved / Accepted) with bonus multipliers that feed into the composite score.
+
+See [`packages/desktop/COHERENCE.md`](packages/desktop/COHERENCE.md) for the formal model.
+
+## Context Management
+
+5-tier paper trail compression (HEAD → KEY_EVIDENCE → RECENT → HISTORICAL → ARCHIVED), 72K working token budget with auto-compression thresholds, session classification (Fit / Adjacent / NetNew / Quick) for allocation tuning.
+
+The `pre-submit` hook injects budget status every turn. When usage crosses 70%, auto-compression kicks in; at 95%, it's mandatory.
+
+See [`docs/CONTEXT-MANAGEMENT.md`](docs/CONTEXT-MANAGEMENT.md) for the full tier diagram and budget threshold table.
+
+## Multi-Pass Reasoning
+
+The `/dialectic` skill implements iterative reasoning through expansion, compression, and critique cycles:
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  EXPANSION  │────▶│ COMPRESSION │────▶│   CRITIQUE  │
+│  (diverge)  │     │  (converge) │     │  (decide)   │
+└─────────────┘     └─────────────┘     └──────┬──────┘
+                                               │
+                    ┌──────────────────────────┼──────┐
+                    ▼                          ▼      ▼
+              [CONTINUE]                 [CONCLUDE] [PIVOT]
+              loop back                  synthesis  reframe
+```
+
+Critique techniques include inversion, second-order effects, falsification, base rates, incentive audit, and adversary simulation.
+
+See [`docs/DIALECTIC.md`](docs/DIALECTIC.md) for the full methodology.
 
 ## Quick Start
 
@@ -80,6 +193,7 @@ dialectic compress suggest <id>   # Get compression suggestions
 
 - [Claude Code](https://docs.anthropic.com/claude-code) installed
 - Node.js 20+ and Rust (for development)
+- ChromaDB (optional — app works offline with feature-hash fallback)
 
 ### Install
 
@@ -93,7 +207,7 @@ npm install
 
 # Build the CLI
 cd packages/desktop/src-tauri
-cargo build --release --bin dialectic
+cargo build --release --bin dialectic-cli
 
 # Add CLI to path (or copy to /usr/local/bin)
 export PATH="$PATH:$(pwd)/target/release"
@@ -102,11 +216,11 @@ export PATH="$PATH:$(pwd)/target/release"
 ### Run
 
 ```bash
-# Development mode
-npm run tauri dev
+# Development mode (from packages/desktop/)
+npm run tauri:dev
 
 # Or build for release
-npm run tauri build
+npm run tauri:build
 ```
 
 ### Install the Plugin
@@ -123,117 +237,103 @@ cp -r .claude-plugin ~/.claude/plugins/dialectic
 
 See the [dialectic-plugin repository](https://github.com/AustinSalter/dialectic-plugin) for standalone installation.
 
-## Context Management
-
-Dialectic manages context across sessions with a tiered paper trail system:
-
-```
-PAPER TRAIL TIERS
-────────────────────────────────────────────────────────────────
-
-  TIER 1: HEAD                          ~500 tokens
-  Core thesis, confidence, triggers.    Always loaded.
-
-  TIER 2: KEY_EVIDENCE                  ~1,500 tokens
-  Verbatim claims marked [KEY].         Always loaded.
-
-  TIER 3: RECENT                        ~3,000 tokens
-  Last 2-3 session traces.              Compress after 7 days.
-
-  TIER 4: HISTORICAL                    ~1,000 tokens
-  Older compressed summaries.           Compress after 30 days.
-
-  TIER 5: ARCHIVED                      0 tokens
-  Full logs on disk.                    Searchable only.
-```
-
-### Budget Thresholds
-
-| Usage | Status | Action |
-|-------|--------|--------|
-| < 70% | Normal | Continue normally |
-| 70-84% | Auto Compress | Tier 4 auto-compressed |
-| 85-94% | Warn User | Alert shown in pre-submit hook |
-| 95%+ | Force Compress | Mandatory compression triggered |
-
-The pre-submit hook shows budget at the start of every turn:
-```
-✓ BUDGET: 62% (44,640/72,000 tokens) [normal]
-⚠️ BUDGET: 87% (62,640/72,000 tokens) [warn_user]
-```
-
-## Multi-Pass Reasoning
-
-The `/dialectic` skill implements iterative reasoning:
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  EXPANSION  │────▶│ COMPRESSION │────▶│   CRITIQUE  │
-│  (diverge)  │     │  (converge) │     │  (decide)   │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-                                               │
-                    ┌──────────────────────────┼──────┐
-                    ▼                          ▼      ▼
-              [CONTINUE]                 [CONCLUDE] [PIVOT]
-              loop back                  synthesis  reframe
-```
-
-### Critique Techniques
-
-1. **Inversion**: What if the opposite were true?
-2. **Second-Order**: What are downstream effects?
-3. **Falsification**: What evidence would disprove this?
-4. **Base Rates**: What do historical priors suggest?
-5. **Incentive Audit**: Who benefits from this being believed?
-6. **Adversary Simulation**: How would a smart skeptic attack?
-
 ## Project Structure
 
 ```
 dialectic/
-├── packages/desktop/
-│   ├── src/                    # React frontend
-│   │   ├── components/         # UI components
-│   │   │   ├── Terminal/       # xterm.js integration
-│   │   │   ├── Board/          # Kanban board
-│   │   │   └── Window/         # Floating windows
-│   │   └── hooks/
-│   │       ├── useTerminal.ts  # PTY management
-│   │       └── useBudgetMonitor.ts  # Budget alerts
+├── packages/
+│   ├── desktop/                   # Main Tauri application
+│   │   ├── src/                   # React frontend
+│   │   │   ├── components/
+│   │   │   │   ├── Board/         # Kanban board
+│   │   │   │   ├── Conversation/  # Session conversation view
+│   │   │   │   ├── DocumentViewer/# Document rendering
+│   │   │   │   ├── Kanban/        # Kanban internals
+│   │   │   │   ├── KeyboardHints/ # Shortcut overlay
+│   │   │   │   ├── Layout/        # App layout shell
+│   │   │   │   ├── Notes/         # Note editor
+│   │   │   │   ├── Rails/         # Snappable side panels
+│   │   │   │   ├── Terminal/      # xterm.js integration
+│   │   │   │   ├── Vista/         # Landscape backgrounds
+│   │   │   │   └── Window/        # Floating windows
+│   │   │   └── hooks/
+│   │   │       ├── useBudgetMonitor.ts
+│   │   │       ├── useDraggable.ts
+│   │   │       ├── useSessionWatcher.ts
+│   │   │       └── useTerminal.ts
+│   │   │
+│   │   └── src-tauri/
+│   │       └── src/
+│   │           ├── main.rs         # Tauri entry, 68 IPC commands
+│   │           ├── lib.rs          # Shared library for CLI
+│   │           ├── session.rs      # Session CRUD, forking, prepare_launch
+│   │           ├── terminal.rs     # PTY management, command allowlist
+│   │           ├── watcher.rs      # File watching + session events
+│   │           ├── cdg.rs          # Claim Dependency Graph
+│   │           ├── context/
+│   │           │   ├── budget.rs
+│   │           │   ├── classification.rs
+│   │           │   ├── compression.rs
+│   │           │   └── tokens.rs
+│   │           ├── documents/
+│   │           │   ├── chunker.rs
+│   │           │   ├── embeddings.rs
+│   │           │   └── retriever.rs
+│   │           ├── obsidian/
+│   │           │   ├── indexer.rs
+│   │           │   ├── query.rs
+│   │           │   └── watcher.rs
+│   │           ├── chroma/
+│   │           │   ├── sidecar.rs
+│   │           │   ├── client.rs
+│   │           │   ├── collections.rs
+│   │           │   ├── search.rs
+│   │           │   ├── memory.rs
+│   │           │   └── jsonl_miner.rs
+│   │           └── bin/
+│   │               └── dialectic.rs  # CLI binary
 │   │
-│   └── src-tauri/
-│       ├── src/
-│       │   ├── main.rs         # Tauri entry
-│       │   ├── terminal.rs     # PTY management
-│       │   ├── session.rs      # Session persistence
-│       │   ├── watcher.rs      # File watching + budget alerts
-│       │   ├── context/        # Token budget management
-│       │   ├── obsidian/       # Vault integration
-│       │   └── bin/
-│       │       └── dialectic.rs  # CLI binary
-│       └── Cargo.toml
+│   ├── shared/                    # Shared utilities
+│   └── web/                       # Web interface
 │
-├── .claude-plugin/             # Claude Code plugin
-│   ├── plugin.json             # Plugin manifest
+├── .claude-plugin/                # Claude Code plugin
+│   ├── plugin.json                # Plugin manifest (v1.6.0)
 │   ├── skills/
-│   │   ├── dialectic/          # Multi-pass reasoning
-│   │   ├── spark/              # Workflow: ideation
-│   │   ├── shape/              # Workflow: position-forming
-│   │   ├── stress-test/        # Workflow: adversarial critique
-│   │   ├── sharpen/            # Workflow: thesis crystallization
-│   │   ├── strategy/           # Strategic analysis protocol
-│   │   ├── pitfalls/           # Cognitive bias detection
-│   │   └── brief/              # Context management
+│   │   ├── dialectic/             # Multi-pass reasoning
+│   │   ├── cancel-dialectic/      # Loop cancellation
+│   │   ├── spark/                 # Workflow: ideation
+│   │   ├── shape/                 # Workflow: position-forming
+│   │   ├── stress-test/           # Workflow: adversarial critique
+│   │   ├── sharpen/               # Workflow: thesis crystallization
+│   │   ├── pitfalls/              # Cognitive bias detection
+│   │   ├── brief/                 # Context management
+│   │   └── tui-debug/             # TUI debugging
 │   └── hooks/
-│       ├── pre-submit-hook.sh  # Budget injection
-│       └── stop-hook.sh        # Loop management
+│       ├── pre-submit-hook.sh     # Budget injection
+│       └── stop-hook.sh           # Loop management
 │
-└── docs/                       # Public documentation
+└── docs/
+    ├── ARCHITECTURE.md
+    ├── DIALECTIC.md
+    ├── EXPERIMENTS.md
+    └── CONTEXT-MANAGEMENT.md
 ```
+
+## Security
+
+CSP enabled, session ID validation (rejects path traversal), path containment with canonicalization, terminal command allowlist (shells + claude only), rehype-sanitize on all rendered markdown, API keys in sessionStorage only.
+
+See [`packages/desktop/security-review.md`](packages/desktop/security-review.md) for the full findings and remaining TODOs.
 
 ## Documentation
 
-See skill files in `.claude-plugin/skills/` for detailed methodology documentation.
+| Document | Contents |
+|----------|----------|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System architecture and design decisions |
+| [`docs/DIALECTIC.md`](docs/DIALECTIC.md) | Full dialectic reasoning methodology |
+| [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) | Experiment log and results |
+| [`docs/CONTEXT-MANAGEMENT.md`](docs/CONTEXT-MANAGEMENT.md) | Paper trail tiers, budget thresholds, session classification |
+| [`packages/desktop/COHERENCE.md`](packages/desktop/COHERENCE.md) | CDG formal model and coherence metrics |
 
 ## Philosophy
 
